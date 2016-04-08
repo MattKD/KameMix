@@ -7,25 +7,25 @@ namespace KameMix {
 
 class SoundBuffer {
 public:
-  SoundBuffer() : buffer{nullptr}, refcount{nullptr}, buffer_size{0} { }
+  SoundBuffer() : buffer{nullptr}, mdata{nullptr}, buffer_size{0} { }
 
   SoundBuffer(const char *filename)
-    : buffer{nullptr}, refcount{nullptr}, buffer_size{0} { load(filename); }
+    : buffer{nullptr}, mdata{nullptr}, buffer_size{0} { load(filename); }
 
   SoundBuffer::SoundBuffer(const SoundBuffer &other) 
-    : refcount{other.refcount},buffer{other.buffer}, 
+    : mdata{other.mdata},buffer{other.buffer}, 
       buffer_size{other.buffer_size}
   {
-    if (refcount) {
-      *refcount += 1;
+    if (mdata) {
+      mdata->refcount += 1;
     }
   }
 
   SoundBuffer::SoundBuffer(SoundBuffer &&other) 
-    : refcount{other.refcount},buffer{other.buffer}, 
+    : mdata{other.mdata},buffer{other.buffer}, 
       buffer_size{other.buffer_size}
   {
-    other.refcount = nullptr;
+    other.mdata = nullptr;
     other.buffer = nullptr;
     other.buffer_size = 0;
   }
@@ -34,11 +34,11 @@ public:
   {
     if (this != &other) {
       release();
-      refcount = other.refcount;
+      mdata = other.mdata;
       buffer = other.buffer;
       buffer_size = other.buffer_size;
-      if (refcount) {
-        (*refcount)++;
+      if (mdata) {
+        mdata->refcount++;
       }
     }
     return *this;
@@ -48,10 +48,10 @@ public:
   {
     if (this != &other) {
       release();
-      refcount = other.refcount;
+      mdata = other.mdata;
       buffer = other.buffer;
       buffer_size = other.buffer_size;
-      other.refcount = nullptr;
+      other.mdata = nullptr;
       other.buffer = nullptr;
       other.buffer_size = 0;
     }
@@ -65,14 +65,24 @@ public:
   bool loadOGG(const char *filename);
   bool loadWAV(const char *filename);
   void release();
-  bool isLoaded() const { return refcount != nullptr; }
+  bool isLoaded() const { return mdata != nullptr; }
 
   uint8_t* data() { return buffer; }
-  int useCount() const { return refcount == nullptr ? 0 : *refcount; }
+  int useCount() const { return mdata ? mdata->refcount : 0; }
   int size() const { return buffer_size; }
+  int numChannels() const { return mdata ? mdata->channels : 0; }
 
 private:
-  int *refcount;
+  struct MiscData_ {
+    int refcount;
+    int channels;
+  };
+  union MiscData {
+    MiscData_ data;
+    float align_; // for float alignment
+  };
+
+  MiscData_ *mdata;
   uint8_t *buffer;
   int buffer_size;
 };

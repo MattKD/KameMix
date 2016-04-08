@@ -2,12 +2,11 @@
 #include "sound.h"
 #include "audio_mem.h"
 #include <SDL.h>
-#include <vector>
-#include <new>
-#include <cstdio>
 #include <cstring>
 #include <cassert>
 #include <cstdint>
+#include <vector>
+#include <new>
 
 #define PI_F 3.141592653589793f
 
@@ -85,13 +84,11 @@ bool AudioSystem::init(int num_sounds, int freq, int sample_buf_size,
   km_free = custom_free == nullptr ? free : custom_free;
   km_realloc = custom_realloc == nullptr ? realloc : custom_realloc;
 
-  //format = getSupportedFormat(format);
   int allowed_changes = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE;
   SDL_AudioSpec spec_want = { 0 };
   SDL_AudioSpec dev_spec = { 0 };
   spec_want.callback = audioCallback;
   spec_want.channels = 2;
-  //spec_want.format = AUDIO_S16SYS;
   spec_want.format = AUDIO_F32SYS;
   spec_want.freq = freq;
   spec_want.samples = sample_buf_size;
@@ -208,7 +205,13 @@ void AudioSystem::update()
         sound_iter->modified = false;
       // update sound to actual position in copy
       } else {
-        int new_pos = sound_iter->buffer_pos + bytes_since_update;
+        int new_pos;
+        // if mono sound advance buffer by half since data converted to stereo
+        if (sound_iter->sound->getSoundBuffer().numChannels() == 1) {
+          new_pos = sound_iter->buffer_pos + bytes_since_update / 2;
+        } else {
+          new_pos = sound_iter->buffer_pos + bytes_since_update;
+        }
         int sound_size = sound_iter->sound->getSoundBuffer().size();
         // times sound finished playing since last update
         // should be 0 or 1 if update is called consistantly.
@@ -221,9 +224,11 @@ void AudioSystem::update()
           if (sound_iter->loop_count < 0) {
             int idx = sound_iter - sounds->begin();
             removeSound(idx);
+            // check if removed last sound and break
             if (idx == sounds->size()) {
               break;
             }
+            // end iter was invalidated in removeSound
             end_iter = sounds->end();
             continue;
           }
@@ -279,9 +284,6 @@ void applyPosition(PlayingCopy &sound, float &left_vol, float &right_vol)
 {
   float relative_x = sound.x;
   float relative_y = sound.y;
-  const float max_mod = 0.4f;
-  const float base = 1/(1.0f+max_mod);
-
   if (sound.listener != nullptr) {
     relative_x = (relative_x - sound.listener->getX()) / sound.max_distance;
     relative_y = (relative_y - sound.listener->getY()) / sound.max_distance;
@@ -292,8 +294,14 @@ void applyPosition(PlayingCopy &sound, float &left_vol, float &right_vol)
   if (distance >= 1.0f) {
     left_vol = right_vol = 0.0f;
   } else {
-    left_vol *= 1.0f - distance;
-    right_vol *= 1.0f - distance;
+    // Sound's volume on left and right speakers vary between 
+    // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
+    // directly in front or behind listener. With max_mod = 0.3, this is 
+    // 1.0 to 0.54 and 0.77 in front and back.
+    const float max_mod = 0.3f;
+    const float base = 1/(1.0f+max_mod) * (1.0f - distance);
+    left_vol *= base;
+    right_vol *= base;
     float left_mod = 1.0f;
     float right_mod = 1.0f;
 
@@ -366,28 +374,37 @@ void clampFloat(float *buf, int len)
 }
 
 static
-int copyAndAdvanceSoundCopy(uint8_t *buffer, PlayingCopy &sound, int len)
+int copyAndAdvanceMonoCopy(uint8_t *buf, const int buf_len, 
+                           PlayingCopy &sound)
 {
-  int buf_left = sound.buf.size() - sound.buffer_pos;
-  int cpy_amount = len < buf_left ? len : buf_left;
-  int total_copied = cpy_amount;
+  const int half_buf_len = buf_len / 2;
+  int src_left = sound.buf.size() - sound.buffer_pos;
+  int half_cpy_amount = half_buf_len < src_left ? half_buf_len : src_left;
+  int total_half_copies = half_cpy_amount;
 
-  memcpy(buffer, sound.buf.data() + sound.buffer_pos, cpy_amount);
-
+  float *dst = (float*)buf; 
+  {
+    float *src = (float*)(sound.buf.data() + sound.buffer_pos); 
+    float *src_end = src + half_cpy_amount / sizeof(float); 
+    while (src != src_end) {
+      *dst++ = *src;
+      *dst++ = *src++;
+    }
+  }
+    
   // didn't reach end of sound buffer
-  if (buf_left > len) { 
-    sound.buffer_pos += len;
+  if (half_cpy_amount < src_left) { 
+    sound.buffer_pos += half_cpy_amount;;
   } else {
     // reached end of sound and not looping
     if (sound.loop_count == 0) { 
       sound.buffer_pos = -1; // remove copy
-    } else {
+    } else { // reached end of sound but are looping
       sound.buffer_pos = 0;
-      int cpy_left = len - cpy_amount;
-      int buf_size = sound.buf.size();
+      int half_cpy_left = half_buf_len - half_cpy_amount;
+      const int src_size = sound.buf.size();
 
-      // buf_left may be equal to len, so cpy_left can be 0, but loop_count
-      // should still be decremented if greater than 0
+      // decrement loop_count at least once
       do {
         if (sound.loop_count > 0) {
           sound.loop_count -= 1;
@@ -396,14 +413,70 @@ int copyAndAdvanceSoundCopy(uint8_t *buffer, PlayingCopy &sound, int len)
           break;
         } 
 
-        cpy_amount = cpy_left < buf_size ? cpy_left : buf_size;
+        half_cpy_amount = half_cpy_left < src_size ? half_cpy_left : src_size;
+        float *src = (float*)sound.buf.data(); 
+        float *src_end = src + half_cpy_amount / sizeof(float); 
+        while (src != src_end) {
+          *dst++ = *src;
+          *dst++ = *src++;
+        }
+        half_cpy_left -= half_cpy_amount;
+        total_half_copies += half_cpy_amount;
+      } while (half_cpy_left > 0);
+
+      // last copy wasn't whole sound buffer
+      if (half_cpy_amount < src_size) {
+        sound.buffer_pos = half_cpy_amount;
+      // was whole sound, so decrement loop_count or set to remove if 0
+      } else if (sound.loop_count > 0) {
+        sound.loop_count -= 1;
+      } else if (sound.loop_count == 0) {
+        sound.buffer_pos = -1;
+      } // do nothing if sound.loop_count == -1
+    } // end else (loop_count != 0) 
+  } // end else (src_left <= half_buf_len)
+
+  return total_half_copies * 2;
+}
+
+int copyAndAdvanceStereoCopy(uint8_t *buffer, const int buf_len, 
+                             PlayingCopy &sound)
+{
+  int src_left = sound.buf.size() - sound.buffer_pos;
+  int cpy_amount = buf_len < src_left ? buf_len : src_left;
+  int total_copied = cpy_amount;
+
+  memcpy(buffer, sound.buf.data() + sound.buffer_pos, cpy_amount);
+
+  // didn't reach end of sound buffer
+  if (src_left > buf_len) { 
+    sound.buffer_pos += buf_len;
+  } else {
+    // reached end of sound and not looping
+    if (sound.loop_count == 0) { 
+      sound.buffer_pos = -1; // remove copy
+    } else { // reached end of sound but are looping
+      sound.buffer_pos = 0;
+      int cpy_left = buf_len - cpy_amount;
+      const int src_size = sound.buf.size();
+
+      // decrement loop_count at least once
+      do {
+        if (sound.loop_count > 0) {
+          sound.loop_count -= 1;
+        } else if (sound.loop_count == 0) {
+          sound.buffer_pos = -1;
+          break;
+        } 
+
+        cpy_amount = cpy_left < src_size ? cpy_left : src_size;
         memcpy(buffer + total_copied, sound.buf.data(), cpy_amount);
         cpy_left -= cpy_amount;
         total_copied += cpy_amount;
       } while (cpy_left > 0);
 
       // last copy wasn't whole sound buffer
-      if (cpy_amount < buf_size) {
+      if (cpy_amount < src_size) {
         sound.buffer_pos = cpy_amount;
       // was whole sound, so decrement loop_count or set to remove if 0
       } else if (sound.loop_count > 0) {
@@ -412,21 +485,27 @@ int copyAndAdvanceSoundCopy(uint8_t *buffer, PlayingCopy &sound, int len)
         sound.buffer_pos = -1;
       }
     } // end else (loop_count != 0) 
-  } // end else (buf_left <= len)
+  } // end else (src_left <= buf_len)
 
   return total_copied;
 }
 
 static 
-void audioCallback(void *udata, Uint8 *stream, int len)
+void audioCallback(void *udata, Uint8 *stream, const int len)
 {
-  ++num_callbacks_since_update;
   memset(stream, 0, len);
+  ++num_callbacks_since_update;
 
   for (auto &sound : *copies) {
-    int total_copied = 
-      copyAndAdvanceSoundCopy((uint8_t*)audio_tmp_buf, sound, len);
-    int num_samples = total_copied / sizeof(float);
+    int total_copied; 
+    if (sound.buf.numChannels() == 1) {
+      total_copied = 
+        copyAndAdvanceMonoCopy((uint8_t*)audio_tmp_buf, len, sound);
+    } else {
+      total_copied = 
+        copyAndAdvanceStereoCopy((uint8_t*)audio_tmp_buf, len, sound);
+    }
+    const int num_samples = total_copied / sizeof(float);
     float left_vol = sound.volume;
     float right_vol = sound.volume;
     applyPosition(sound, left_vol, right_vol);
@@ -436,6 +515,6 @@ void audioCallback(void *udata, Uint8 *stream, int len)
 
   removeFinishedCopies();
 
-  int num_samples = len / sizeof(float);
+  const int num_samples = len / sizeof(float);
   clampFloat((float*)stream, num_samples);
 }

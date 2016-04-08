@@ -48,8 +48,14 @@ struct PlayingCopy {
 typedef std::vector<PlayingSound, KameMix::Alloc<PlayingSound>> SoundBuf;
 typedef std::vector<PlayingCopy, KameMix::Alloc<PlayingCopy>> CopyBuf;
 
-static SoundBuf *sounds;
-static CopyBuf *copies;
+struct PlayBuffers {
+  SoundBuf sounds;
+  CopyBuf copies;
+};
+
+//static SoundBuf *sounds;
+//static CopyBuf *copies;
+static PlayBuffers *play_buffers;
 static SDL_AudioDeviceID dev_id;
 static int num_callbacks_since_update;
 static float *audio_tmp_buf;
@@ -68,7 +74,7 @@ MallocFunc AudioSystem::km_malloc;
 FreeFunc AudioSystem::km_free;
 ReallocFunc AudioSystem::km_realloc;
 
-int AudioSystem::numberPlaying() { return sounds->size(); }
+int AudioSystem::numberPlaying() { return play_buffers->sounds.size(); }
 
 bool AudioSystem::init(int num_sounds, int freq, int sample_buf_size,
                        MallocFunc custom_malloc,
@@ -108,21 +114,14 @@ bool AudioSystem::init(int num_sounds, int freq, int sample_buf_size,
   audio_tmp_buf_len = dev_spec.samples * dev_spec.channels;
   audio_tmp_buf = (float*) km_malloc(audio_tmp_buf_len * sizeof(float));
 
-  sounds = km_new<SoundBuf>();
-  if (sounds == nullptr) {
+  play_buffers = km_new<PlayBuffers>();
+  if (play_buffers == nullptr) {
     shutdown();
     setError("Out of memory");
     return false;
   }
-  sounds->reserve(num_sounds);
-
-  copies = km_new<CopyBuf>();
-  if (copies == nullptr) {
-    shutdown();
-    setError("Out of memory");
-    return false;
-  }
-  copies->reserve(num_sounds);
+  play_buffers->sounds.reserve(num_sounds);
+  play_buffers->copies.reserve(num_sounds);
 
   SDL_PauseAudioDevice(dev_id, 0);
   return true;
@@ -133,71 +132,75 @@ void AudioSystem::shutdown()
   SDL_CloseAudioDevice(dev_id);
   SDL_QuitSubSystem(SDL_INIT_AUDIO);
 
-  for (PlayingSound &sound : *sounds) {
+  for (PlayingSound &sound : play_buffers->sounds) {
     sound.sound->mix_idx = -1;
   }
 
   km_free(audio_tmp_buf);
   audio_tmp_buf = nullptr;
-  km_delete(sounds);
-  sounds = nullptr;
-  km_delete(copies);
-  copies = nullptr;
+  km_delete(play_buffers);
+  play_buffers = nullptr;
 }
 
 void AudioSystem::addSound(Sound *sound, int loops)
 {
   assert(sound->buffer.size() > 0 && "Tried playing a Sound without audio data");
-  sounds->push_back(PlayingSound(sound, loops));
-  sound->mix_idx = sounds->size() - 1;
+  SoundBuf &sounds = play_buffers->sounds;
+  sounds.push_back(PlayingSound(sound, loops));
+  sound->mix_idx = sounds.size() - 1;
 }
 
 void AudioSystem::removeSound(int idx)
 {
-  PlayingSound &sound = (*sounds)[idx];
+  SoundBuf &sounds = play_buffers->sounds;
+  PlayingSound &sound = sounds[idx];
   sound.sound->mix_idx = -1;
-  if (idx != sounds->size() - 1) {
-    sound = sounds->back();
+  if (idx != sounds.size() - 1) {
+    sound = sounds.back();
     sound.sound->mix_idx = idx;
   }
-  sounds->pop_back();
+  sounds.pop_back();
 }
 
 void AudioSystem::pauseSound(int idx, bool paused)
 {
-  (*sounds)[idx].paused = paused;
+  play_buffers->sounds[idx].paused = paused;
 }
 
 bool AudioSystem::isSoundPaused(int idx)
 {
-  return (*sounds)[idx].paused;
+  return play_buffers->sounds[idx].paused;
 }
 
 void AudioSystem::setSoundPos(int idx, int pos)
 {
-  (*sounds)[idx].buffer_pos = pos;
-  (*sounds)[idx].modified = true;
+  SoundBuf &sounds = play_buffers->sounds;
+  sounds[idx].buffer_pos = pos;
+  sounds[idx].modified = true;
 }
 
 void AudioSystem::replaySound(int idx, int loops)
 {
-  (*sounds)[idx].buffer_pos = 0;
-  (*sounds)[idx].loop_count = loops;
-  (*sounds)[idx].modified = true;
+  SoundBuf &sounds = play_buffers->sounds;
+  sounds[idx].buffer_pos = 0;
+  sounds[idx].loop_count = loops;
+  sounds[idx].modified = true;
 }
 
 void AudioSystem::update()
 {
+  SoundBuf &sounds = play_buffers->sounds;
+  CopyBuf &copies = play_buffers->copies;
   SDL_LockAudioDevice(dev_id);
   int bytes_since_update = 
     num_callbacks_since_update * audio_tmp_buf_len * sizeof(float);
 
   num_callbacks_since_update = 0;
-  copies->clear();
-  copies->reserve(sounds->size());
+  copies.clear();
+  copies.reserve(sounds.size());
 
-  auto sound_iter = sounds->begin();
-  auto end_iter = sounds->end();
+  auto sound_iter = sounds.begin();
+  auto end_iter = sounds.end();
   while (sound_iter != end_iter) {
     if (!sound_iter->paused) {
       // user reset position in sound, so set copy to that
@@ -222,20 +225,20 @@ void AudioSystem::update()
         if (sound_iter->loop_count != -1) {
           sound_iter->loop_count -= loops;
           if (sound_iter->loop_count < 0) {
-            int idx = sound_iter - sounds->begin();
+            int idx = sound_iter - sounds.begin();
             removeSound(idx);
             // check if removed last sound and break
-            if (idx == sounds->size()) {
+            if (idx == sounds.size()) {
               break;
             }
             // end iter was invalidated in removeSound
-            end_iter = sounds->end();
+            end_iter = sounds.end();
             continue;
           }
         }
       }
 
-      copies->push_back(PlayingCopy(*sound_iter));
+      copies.push_back(PlayingCopy(*sound_iter));
     } // end if (!paused)
 
     ++sound_iter;
@@ -338,19 +341,20 @@ void applyPosition(PlayingCopy &sound, float &left_vol, float &right_vol)
 static
 void removeFinishedCopies()
 {
+  CopyBuf &copies = play_buffers->copies;
   // remove all copies with buffer_pos set to -1
-  auto it = copies->begin();
-  auto end_it = copies->end();
+  auto it = copies.begin();
+  auto end_it = copies.end();
   int idx = 0;
   while (it != end_it) {
     if (it->buffer_pos == -1) {
       if (it == (end_it - 1)) { // removing last item
-        copies->pop_back();
+        copies.pop_back();
         break;
       } else {
-        *it = copies->back();
-        copies->pop_back();
-        end_it = copies->end();
+        *it = copies.back();
+        copies.pop_back();
+        end_it = copies.end();
         continue;
       }
     }
@@ -493,10 +497,11 @@ int copyAndAdvanceStereoCopy(uint8_t *buffer, const int buf_len,
 static 
 void audioCallback(void *udata, Uint8 *stream, const int len)
 {
+  CopyBuf &copies = play_buffers->copies;
   memset(stream, 0, len);
   ++num_callbacks_since_update;
 
-  for (auto &sound : *copies) {
+  for (auto &sound : copies) {
     int total_copied; 
     if (sound.buf.numChannels() == 1) {
       total_copied = 

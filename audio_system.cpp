@@ -53,8 +53,6 @@ struct PlayBuffers {
   CopyBuf copies;
 };
 
-//static SoundBuf *sounds;
-//static CopyBuf *copies;
 static PlayBuffers *play_buffers;
 static SDL_AudioDeviceID dev_id;
 static int num_callbacks_since_update;

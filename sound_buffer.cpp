@@ -1,5 +1,4 @@
 #include "sound_buffer.h"
-#include "audio_system.h"
 #include <SDL.h>
 #include <vorbisfile.h>
 #include <cassert>
@@ -42,7 +41,7 @@ bool SoundBuffer::load(const char *filename)
     return loadWAV(filename);
   }
 
-  return true;
+  return false;
 }
 
 

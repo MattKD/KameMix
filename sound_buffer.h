@@ -1,6 +1,7 @@
 #ifndef SOUND_BUFFER_H
 #define SOUND_BUFFER_H
 
+#include "audio_system.h"
 #include <stdint.h>
 
 namespace KameMix {
@@ -58,14 +59,25 @@ public:
     return *this;
   }
 
-
   ~SoundBuffer() { release(); }
 
   bool load(const char *filename);
   bool loadOGG(const char *filename);
   bool loadWAV(const char *filename);
-  void release();
   bool isLoaded() const { return mdata != nullptr; }
+  void release()
+  {
+    if (mdata != nullptr) {
+      if (mdata->refcount == 1) {
+        AudioSystem::getFree()(mdata); // includes audio buffer
+        mdata = nullptr;
+        buffer = nullptr;
+        buffer_size = 0;
+      } else {
+        mdata->refcount -= 1;
+      }
+    }
+  }
 
   uint8_t* data() { return buffer; }
   int useCount() const { return mdata ? mdata->refcount : 0; }

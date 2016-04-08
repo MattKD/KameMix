@@ -335,20 +335,4 @@ bool SoundBuffer::loadOGG(const char *filename)
   return true;
 }
 
-void SoundBuffer::release()
-{
-  if (mdata == nullptr) {
-    return;
-  }
-
-  if (mdata->refcount == 1) {
-    AudioSystem::getFree()(mdata); // includes audio buffer
-    mdata = nullptr;
-    buffer = nullptr;
-    buffer_size = 0;
-  } else {
-    mdata->refcount -= 1;
-  }
-}
-
 } // end namespace KameMix

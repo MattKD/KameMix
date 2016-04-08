@@ -78,7 +78,11 @@ struct Alloc{
 
   T* allocate(std::size_t n) 
   { 
-    return (T*) KameMix::AudioSystem::getMalloc()(n * sizeof(T)); 
+    T* tmp = (T*) KameMix::AudioSystem::getMalloc()(n * sizeof(T)); 
+    if (tmp) {
+      return tmp;
+    }
+    throw std::bad_alloc();
   }
 
   void deallocate(T *ptr, std::size_t n) 

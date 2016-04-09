@@ -12,7 +12,7 @@
 
 struct PlayingSound {
   PlayingSound(KameMix::Sound *s, int loops) :
-    sound{s}, buffer_pos{0}, loop_count{loops}, modified{false}, paused{false}
+    sound{s}, buffer_pos{0}, loop_count{loops}, modified{true}, paused{false}
   { }
 
   KameMix::Sound *sound;
@@ -201,7 +201,7 @@ void AudioSystem::update()
   auto end_iter = sounds.end();
   while (sound_iter != end_iter) {
     if (!sound_iter->paused) {
-      // user reset position in sound, so set copy to that
+      // sound newly added, or user reset position, so don't modify position
       if (sound_iter->modified) {
         sound_iter->modified = false;
       // update sound to actual position in copy

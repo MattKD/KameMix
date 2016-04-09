@@ -337,31 +337,6 @@ void applyPosition(PlayingCopy &sound, float &left_vol, float &right_vol)
 }
 
 static
-void removeFinishedCopies()
-{
-  CopyBuf &copies = play_buffers->copies;
-  // remove all copies with buffer_pos set to -1
-  auto it = copies.begin();
-  auto end_it = copies.end();
-  int idx = 0;
-  while (it != end_it) {
-    if (it->buffer_pos == -1) {
-      if (it == (end_it - 1)) { // removing last item
-        copies.pop_back();
-        break;
-      } else {
-        *it = copies.back();
-        copies.pop_back();
-        end_it = copies.end();
-        continue;
-      }
-    }
-    ++it;
-    ++idx;
-  }
-}
-
-static
 void clampFloat(float *buf, int len)
 {
   float *buf_end = buf + len;
@@ -500,23 +475,24 @@ void audioCallback(void *udata, Uint8 *stream, const int len)
   ++num_callbacks_since_update;
 
   for (auto &sound : copies) {
-    int total_copied; 
-    if (sound.buf.numChannels() == 1) {
-      total_copied = 
-        copyAndAdvanceMonoCopy((uint8_t*)audio_tmp_buf, len, sound);
-    } else {
-      total_copied = 
-        copyAndAdvanceStereoCopy((uint8_t*)audio_tmp_buf, len, sound);
+    // skip sound that will be removed in update
+    if (sound.buffer_pos != -1) { 
+      int total_copied; 
+      if (sound.buf.numChannels() == 1) {
+        total_copied = 
+          copyAndAdvanceMonoCopy((uint8_t*)audio_tmp_buf, len, sound);
+      } else {
+        total_copied = 
+          copyAndAdvanceStereoCopy((uint8_t*)audio_tmp_buf, len, sound);
+      }
+      const int num_samples = total_copied / sizeof(float);
+      float left_vol = sound.volume;
+      float right_vol = sound.volume;
+      applyPosition(sound, left_vol, right_vol);
+      applyVolumeFloat(audio_tmp_buf, num_samples, left_vol, right_vol);
+      mixStreamFloat((float*)stream, audio_tmp_buf, num_samples);
     }
-    const int num_samples = total_copied / sizeof(float);
-    float left_vol = sound.volume;
-    float right_vol = sound.volume;
-    applyPosition(sound, left_vol, right_vol);
-    applyVolumeFloat(audio_tmp_buf, num_samples, left_vol, right_vol);
-    mixStreamFloat((float*)stream, audio_tmp_buf, num_samples);
   }
-
-  removeFinishedCopies();
 
   const int num_samples = len / sizeof(float);
   clampFloat((float*)stream, num_samples);

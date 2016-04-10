@@ -2,7 +2,8 @@
 #define SOUND_BUFFER_H
 
 #include "audio_system.h"
-#include <stdint.h>
+#include <cstdint>
+#include <cstddef>
 
 namespace KameMix {
 
@@ -85,16 +86,12 @@ public:
   int numChannels() const { return mdata ? mdata->channels : 0; }
 
 private:
-  struct MiscData_ {
+  struct alignas(std::max_align_t) MiscData {
     int refcount;
     int channels;
   };
-  union MiscData {
-    MiscData_ data;
-    float align_; // for float alignment
-  };
 
-  MiscData_ *mdata;
+  MiscData *mdata;
   uint8_t *buffer;
   int buffer_size;
 };

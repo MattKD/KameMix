@@ -117,8 +117,7 @@ bool SoundBuffer::loadWAV(const char *filename)
   }
 
   release();
-  MiscData *tmp = (MiscData*) dst_buf.get(); 
-  mdata = &tmp->data; 
+  mdata = (MiscData*) dst_buf.get(); 
   mdata->refcount = 1;
   mdata->channels = wav_spec.channels;
   buffer = dst_buf.release() + sizeof(MiscData);
@@ -324,8 +323,7 @@ bool SoundBuffer::loadOGG(const char *filename)
   }
 
   release();
-  MiscData *tmp = (MiscData*) buf.get();
-  mdata = &tmp->data;
+  mdata = (MiscData*) buf.get();
   mdata->refcount = 1;
   mdata->channels = channels;
   buffer = buf.release() + sizeof(MiscData);

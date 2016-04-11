@@ -158,6 +158,7 @@ static int calcBufSizeOGG(OggVorbis_File *vf, int channels)
   return num_blocks * bytes_per_block * cvt.len_mult;
 }
 
+static inline
 bool isMonoOGG(OggVorbis_File &vf)
 {
   for (int i = ov_streams(&vf) - 1; i >= 0; --i) {

@@ -233,24 +233,22 @@ bool SoundBuffer::loadOGG(const char *filename)
       // freq is different in this bitstream than last, so convert all data
       // read and not converted if necessary 
       if (src_freq != last_src_freq) {
-        if (build_cvt_result > 0) {
-          cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
-          if (SDL_ConvertAudio(&cvt) < 0) {
-            AudioSystem::setError("SDL_ConvertAudio failed\n");
-            return false;
-          }
-          uint8_t *tmp = cvt.buf + cvt.len_cvt;
-          dst = (float*)tmp;
-          last_src_freq = src_freq;
-          build_cvt_result = 
-            SDL_BuildAudioCVT(&cvt, format, channels, src_freq, 
-                              format, channels, dst_freq); 
-          if (build_cvt_result < 0) {
-            AudioSystem::setError("SDL_BuildAudioCVT failed\n");
-            return false;
-          }
-          cvt.buf = tmp; // SDL_BuildAudioCVT sets buf to null
+        cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
+        if (SDL_ConvertAudio(&cvt) < 0) {
+          AudioSystem::setError("SDL_ConvertAudio failed\n");
+          return false;
         }
+        uint8_t *tmp = cvt.buf + cvt.len_cvt;
+        dst = (float*)tmp;
+        last_src_freq = src_freq;
+        build_cvt_result = 
+          SDL_BuildAudioCVT(&cvt, format, channels, src_freq, 
+                            format, channels, dst_freq); 
+        if (build_cvt_result < 0) {
+          AudioSystem::setError("SDL_BuildAudioCVT failed\n");
+          return false;
+        }
+        cvt.buf = tmp; // SDL_BuildAudioCVT sets buf to null
       }
 
       // check if buf is big enough for next samples read

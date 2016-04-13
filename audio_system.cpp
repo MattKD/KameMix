@@ -416,6 +416,7 @@ int copyAndAdvanceMonoCopy(uint8_t *buf, const int buf_len,
   return total_half_copies * 2;
 }
 
+static
 int copyAndAdvanceStereoCopy(uint8_t *buffer, const int buf_len, 
                              PlayingCopy &sound)
 {

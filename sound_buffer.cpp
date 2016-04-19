@@ -1,4 +1,5 @@
 #include "sound_buffer.h"
+#include "audio_mem.h"
 #include <SDL.h>
 #include <vorbisfile.h>
 #include <cassert>
@@ -48,9 +49,7 @@ bool SoundBuffer::load(const char *filename)
 bool SoundBuffer::loadWAV(const char *filename)
 {
   using std::unique_ptr;
-  MallocFunc km_malloc = AudioSystem::getMalloc();
   FreeFunc km_free = AudioSystem::getFree();
-  ReallocFunc km_realloc = AudioSystem::getRealloc();
 
   Uint8 *wav_buf;
   Uint32 wav_buf_len = 0;
@@ -78,22 +77,14 @@ bool SoundBuffer::loadWAV(const char *filename)
   int dst_buf_len;
 
   if (build_cvt_result == 0) {
-    Uint8 *tmp = (uint8_t*) km_malloc(wav_buf_len + sizeof(MiscData));
-    if (!tmp) {
-      AudioSystem::setError("Out of memory\n");
-      return false;
-    }
+    Uint8 *tmp = km_alloc_type<uint8_t>(wav_buf_len + sizeof(MiscData));
     dst_buf.reset(tmp);
     dst_buf_len = wav_buf_len;
     memcpy(dst_buf.get() + sizeof(int), wav_buf, wav_buf_len);
   } else {
     cvt.len = wav_buf_len;
-    Uint8 *tmp = (uint8_t*) km_malloc(cvt.len * cvt.len_mult + 
+    Uint8 *tmp = km_alloc_type<uint8_t>(cvt.len * cvt.len_mult + 
       sizeof(MiscData));
-    if (!tmp) {
-      AudioSystem::setError("Out of memory\n");
-      return false;
-    }
     dst_buf.reset(tmp);
     cvt.buf = dst_buf.get() + sizeof(MiscData);
     memcpy(cvt.buf, wav_buf, cvt.len);
@@ -105,12 +96,8 @@ bool SoundBuffer::loadWAV(const char *filename)
     
     dst_buf_len = cvt.len_cvt;
     if (dst_buf_len < cvt.len * cvt.len_mult) {
-      Uint8 *tmp = (Uint8*) km_realloc(dst_buf.get(), 
-                                       dst_buf_len + sizeof(MiscData));
-      if (!tmp) {
-        AudioSystem::setError("Out of memory\n");
-        return false;
-      }
+      Uint8 *tmp = km_realloc_type<uint8_t>(dst_buf.get(), 
+        dst_buf_len + sizeof(MiscData));
       dst_buf.release(); // ptr was maybe moved or still same as tmp
       dst_buf.reset(tmp);
     }
@@ -173,9 +160,7 @@ bool isMonoOGG(OggVorbis_File &vf)
 bool SoundBuffer::loadOGG(const char *filename)
 {
   using std::unique_ptr;
-  MallocFunc km_malloc = AudioSystem::getMalloc();
   FreeFunc km_free = AudioSystem::getFree();
-  ReallocFunc km_realloc = AudioSystem::getRealloc();
   OggVorbis_File vf;
 
   if (ov_fopen(filename, &vf) != 0) {
@@ -212,7 +197,7 @@ bool SoundBuffer::loadOGG(const char *filename)
   }
   buf_len += sizeof(MiscData); // calcbufSizeOGG doesn't include MiscData
 
-  unique_ptr<uint8_t, FreeFunc> buf((uint8_t*)km_malloc(buf_len), km_free);
+  unique_ptr<uint8_t, FreeFunc> buf(km_alloc_type<uint8_t>(buf_len), km_free);
   cvt.len = 0; // don't know len of data to be converted yet
   cvt.buf = buf.get() + sizeof(MiscData); // point past MiscData
   float *dst = (float*)cvt.buf;
@@ -294,11 +279,7 @@ bool SoundBuffer::loadOGG(const char *filename)
   int buf_len_used = (uint8_t*)dst - buf.get(); // including MiscData
   if (buf_len_used < buf_len) {
     buf_len = buf_len_used;
-    uint8_t *tmp_buf = (uint8_t*)km_realloc(buf.get(), buf_len);
-    if (tmp_buf == nullptr) {
-      AudioSystem::setError("Out of memory\n");
-      return false;
-    }
+    uint8_t *tmp_buf = km_realloc_type<uint8_t>(buf.get(), buf_len);
     buf.release();
     buf.reset(tmp_buf);
   }

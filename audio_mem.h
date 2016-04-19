@@ -9,13 +9,23 @@ namespace KameMix {
 template <class T>
 T* km_alloc_type(int num)
 {
-  return (T*) KameMix::AudioSystem::getMalloc()(num * sizeof(T));
+  T *tmp = (T*) KameMix::AudioSystem::getMalloc()(num * sizeof(T));
+  if (tmp) {
+    return tmp;
+  } else {
+    throw std::bad_alloc();
+  }
 }
 
 template <class T>
 T* km_realloc_type(T *ptr, int num)
 {
-  return (T*) KameMix::AudioSystem::getRealloc()(ptr, num * sizeof(T));
+  T *tmp = (T*) KameMix::AudioSystem::getRealloc()(ptr, num * sizeof(T));
+  if (tmp) {
+    return tmp;
+  } else {
+    throw std::bad_alloc();
+  }
 }
 
 template <class T>
@@ -24,8 +34,10 @@ T* km_new()
   T *buf = (T*) KameMix::AudioSystem::getMalloc()(sizeof(T));
   if (buf) {
     buf = new (buf) T();
+    return buf;
+  } else {
+    throw std::bad_alloc();
   }
-  return buf;
 }
 
 template <class T>
@@ -39,8 +51,10 @@ T* km_new_n(int num)
       tmp = new (tmp) T();
       ++tmp;
     }
+    return buf;
+  } else {
+    throw std::bad_alloc();
   }
-  return buf;
 }
 
 template <class T>
@@ -78,11 +92,7 @@ struct Alloc{
 
   T* allocate(std::size_t n) 
   { 
-    T* tmp = (T*) KameMix::AudioSystem::getMalloc()(n * sizeof(T)); 
-    if (tmp) {
-      return tmp;
-    }
-    throw std::bad_alloc();
+    return (T*) KameMix::AudioSystem::getMalloc()(n * sizeof(T)); 
   }
 
   void deallocate(T *ptr, std::size_t n) 

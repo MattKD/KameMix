@@ -113,7 +113,9 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   // Release and alloc new sdata. This will be sole owner
   // of sdata so no lock is needed.
   release();
-  allocData();
+  if (!allocData()) { // failed to allocate
+    return false;
+  }
   SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
   // call release on error
   std::unique_ptr<StreamBuffer, void(*)(StreamBuffer*)>

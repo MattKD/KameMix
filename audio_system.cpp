@@ -1,80 +1,163 @@
 #include "audio_system.h"
 #include "sound.h"
+#include "stream.h"
 #include "audio_mem.h"
 #include <SDL.h>
 #include <cstring>
 #include <cassert>
 #include <cstdint>
 #include <vector>
-#include <new>
 
 #define PI_F 3.141592653589793f
 
-struct PlayingSound {
-  PlayingSound(KameMix::Sound *s, int loops) :
-    sound{s}, buffer_pos{0}, loop_count{loops}, modified{true}, paused{false}
-  { }
+namespace KameMix {
 
-  KameMix::Sound *sound;
-  int buffer_pos;
-  int loop_count;
-  bool modified;
-  bool paused;
+enum PlayingType : uint8_t {
+  SoundType,
+  StreamType
 };
 
-struct PlayingCopy {
-  PlayingCopy(PlayingSound &s) :
-    buf(s.sound->getSoundBuffer()), buffer_pos{s.buffer_pos}, 
-    loop_count{s.loop_count}, x{s.sound->getX()},
-    y{s.sound->getY()}, max_distance{s.sound->getMaxDistance()},
-    listener{s.sound->getListener()}
+enum PlayingState : uint8_t {
+  ReadyState,
+  StoppedState,
+  FinishedState,
+  PausedState
+};
+
+struct PlayingSound {
+  PlayingSound(Sound *s, int loops, int buf_pos, bool paused) :
+    tag{SoundType}, sound{s}, buffer_pos{buf_pos}, loop_count{loops}, 
+    state{ReadyState}
   { 
-    volume = KameMix::AudioSystem::getMastervolume() * s.sound->getVolume();
-    KameMix::Group *group = s.sound->getGroup();
-    if (group) {
-      volume *= group->getVolume();
+    updateSound();
+  }
+
+  PlayingSound(Stream *s, int loops, int buf_pos, bool paused) :
+    tag{StreamType}, stream{s}, buffer_pos{buf_pos}, loop_count{loops}, 
+    state{ReadyState}
+  { 
+    updateStream();
+  }
+
+  void updateSound()
+  {
+    volume = sound->getVolumeInGroup();
+    sound->getRelativeDistance(x, y);
+  }
+
+  void updateStream()
+  {
+    volume = stream->getVolumeInGroup();
+    stream->getRelativeDistance(x, y);
+  }
+
+  void decrementLoopCount()
+  {
+    if (loop_count == 0) {
+      state = FinishedState;
+    } else if (loop_count > 0) {
+      --loop_count;
     }
   }
 
-  KameMix::SoundBuffer buf;
-  int buffer_pos;
-  int loop_count;
-  float volume;
-  float x, y;
-  float max_distance;
-  KameMix::Listener *listener;
+  bool streamSwapNeeded(StreamBuffer &stream_buf)
+  {
+    return buffer_pos == stream_buf.size();
+  }
+
+  bool streamSwapBuffers(StreamBuffer &stream_buf)
+  {
+    StreamResult result = stream_buf.swapBuffers();
+    if (result == StreamReady) {
+      if (stream_buf.endPos() == 0) { // EOF seen immediately on read
+        decrementLoopCount();
+      }
+      buffer_pos = 0;
+      if (!stream_buf.fullyBuffered()) {
+        std::thread thrd([stream_buf]() mutable { stream_buf.readMore(); }); 
+        thrd.detach();
+      }
+      return true;
+    } else if (result == StreamError) {
+      state = FinishedState; 
+    } else {
+      assert(result != StreamNoData); // readMore never called
+      buffer_pos = stream_buf.size();
+    }
+    return false;
+  }
+
+  union {
+    Sound *sound;
+    Stream *stream;
+  };
+  int buffer_pos; // byte pos in sound/stream
+  int loop_count; // -1 for infinite loop, 0 to play once, n to loop n times
+  float volume; // volume of sound * group
+  float x, y; // relative position from listener
+  PlayingType tag;
+  PlayingState state;
 };
 
-typedef std::vector<PlayingSound, KameMix::Alloc<PlayingSound>> SoundBuf;
-typedef std::vector<PlayingCopy, KameMix::Alloc<PlayingCopy>> CopyBuf;
+} // end namespace KameMix
 
-struct PlayBuffers {
-  SoundBuf sounds;
-  CopyBuf copies;
-};
+using namespace KameMix;
 
-static PlayBuffers *play_buffers;
-static SDL_AudioDeviceID dev_id;
-static int num_callbacks_since_update;
-static float *audio_tmp_buf;
-static int audio_tmp_buf_len;
+typedef std::vector<PlayingSound, Alloc<PlayingSound>> SoundBuf;
 
 static 
-void audioCallback(void *udata, Uint8 *stream, int len);
+void applyVolumeFloat(float *stream, int len, float left_vol, float right_vol);
+static
+void mixStreamFloat(float *target, float *source, int len);
+static
+void applyPosition(float rel_x, float rel_y, float &left_vol, float &right_vol);
+static
+void clampFloat(float *buf, int len);
+static
+int copyMonoSound(uint8_t *buf, const int buf_len, 
+                  PlayingSound &sound, SoundBuffer &sound_buf);
+static
+int copyMonoStream(uint8_t *buf, const int buf_len, 
+                   PlayingSound &stream, StreamBuffer &stream_buf);
+static
+int copyStereoSound(uint8_t *buffer, const int buf_len, 
+                    PlayingSound &sound, SoundBuffer &sound_buf);
+static
+int copyStereoStream(uint8_t *buffer, const int buf_len, 
+                     PlayingSound &sound, StreamBuffer &stream_buf);
+
+static SoundBuf *sounds;
+static SDL_AudioDeviceID dev_id;
+static float *audio_tmp_buf;
+static int audio_tmp_buf_len;
+static std::mutex audio_mutex;
 
 namespace KameMix {
 
 int AudioSystem::channels;
 int AudioSystem::frequency;
+AudioFormat AudioSystem::format;
 float AudioSystem::master_volume = 1.0f;
-const char *AudioSystem::error_string = "";
-MallocFunc AudioSystem::km_malloc;
-FreeFunc AudioSystem::km_free;
-ReallocFunc AudioSystem::km_realloc;
+char AudioSystem::error_string[error_len] = "\0";
+MallocFunc AudioSystem::user_malloc;
+FreeFunc AudioSystem::user_free;
+ReallocFunc AudioSystem::user_realloc;
 
-int AudioSystem::numberPlaying() { return play_buffers->sounds.size(); }
+int AudioSystem::numberPlaying() 
+{ 
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  return sounds->size(); 
+}
 
-bool AudioSystem::init(int num_sounds, int freq, int sample_buf_size,
+void AudioSystem::setError(const char *err, ...)
+{
+  va_list args;
+  va_start(args, err);
+  vsnprintf(error_string, error_len, err, args); 
+  va_end(args);
+}
+
+bool AudioSystem::init(int freq, int sample_buf_size,
                        MallocFunc custom_malloc,
                        FreeFunc custom_free,
                        ReallocFunc custom_realloc)
@@ -84,14 +167,21 @@ bool AudioSystem::init(int num_sounds, int freq, int sample_buf_size,
     return false;
   }
 
-  km_malloc = custom_malloc == nullptr ? malloc : custom_malloc;
-  km_free = custom_free == nullptr ? free : custom_free;
-  km_realloc = custom_realloc == nullptr ? realloc : custom_realloc;
+  if (custom_malloc || custom_free || custom_realloc) { // at least one set
+    if (!(custom_malloc && custom_free && custom_realloc)) { // not all set
+      setError("Custom malloc supplied without custom free\n");
+      return false;
+    }
+  }
+
+  user_malloc = custom_malloc == nullptr ? malloc : custom_malloc;
+  user_free = custom_free == nullptr ? free : custom_free;
+  user_realloc = custom_realloc == nullptr ? realloc : custom_realloc;
 
   int allowed_changes = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE;
   SDL_AudioSpec spec_want = { 0 };
   SDL_AudioSpec dev_spec = { 0 };
-  spec_want.callback = audioCallback;
+  spec_want.callback = AudioSystem::audioCallback;
   spec_want.channels = 2;
   spec_want.format = AUDIO_F32SYS;
   spec_want.freq = freq;
@@ -106,20 +196,15 @@ bool AudioSystem::init(int num_sounds, int freq, int sample_buf_size,
   }
 
   AudioSystem::frequency = dev_spec.freq;
+  AudioSystem::format = FloatFormat;
   AudioSystem::channels = dev_spec.channels;
   AudioSystem::master_volume = 1.0f;
 
   audio_tmp_buf_len = dev_spec.samples * dev_spec.channels;
-  audio_tmp_buf = (float*) km_malloc(audio_tmp_buf_len * sizeof(float));
+  audio_tmp_buf = (float*)km_malloc(sizeof(float) * audio_tmp_buf_len);
 
-  play_buffers = km_new<PlayBuffers>();
-  if (play_buffers == nullptr) {
-    shutdown();
-    setError("Out of memory");
-    return false;
-  }
-  play_buffers->sounds.reserve(num_sounds);
-  play_buffers->copies.reserve(num_sounds);
+  sounds = km_new<SoundBuf>();
+  sounds->reserve(256);
 
   SDL_PauseAudioDevice(dev_id, 0);
   return true;
@@ -130,119 +215,168 @@ void AudioSystem::shutdown()
   SDL_CloseAudioDevice(dev_id);
   SDL_QuitSubSystem(SDL_INIT_AUDIO);
 
-  for (PlayingSound &sound : play_buffers->sounds) {
-    sound.sound->mix_idx = -1;
+  for (PlayingSound &sound : *sounds) {
+    if (sound.tag == SoundType) {
+      sound.sound->mix_idx = -1;
+    } else {
+      sound.stream->mix_idx = -1;
+    }
   }
 
   km_free(audio_tmp_buf);
   audio_tmp_buf = nullptr;
-  km_delete(play_buffers);
-  play_buffers = nullptr;
+  km_delete(sounds);
+  sounds = nullptr;
 }
 
-void AudioSystem::addSound(Sound *sound, int loops)
+void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused)
 {
-  assert(sound->buffer.size() > 0 && "Tried playing a Sound without audio data");
-  SoundBuf &sounds = play_buffers->sounds;
-  sounds.push_back(PlayingSound(sound, loops));
-  sound->mix_idx = sounds.size() - 1;
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  sounds->push_back(PlayingSound(sound, loops, pos, paused));
+  sound->mix_idx = sounds->size() - 1;
+}
+
+void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  sounds->push_back(PlayingSound(stream, loops, pos, paused));
+  stream->mix_idx = sounds->size() - 1;
 }
 
 void AudioSystem::removeSound(int idx)
 {
-  SoundBuf &sounds = play_buffers->sounds;
-  PlayingSound &sound = sounds[idx];
-  sound.sound->mix_idx = -1;
-  if (idx != sounds.size() - 1) {
-    sound = sounds.back();
-    sound.sound->mix_idx = idx;
-  }
-  sounds.pop_back();
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  PlayingSound &sound = (*sounds)[idx];
+  sound.state = StoppedState;
+}
+
+bool AudioSystem::isSoundFinished(int idx)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  return (*sounds)[idx].state == FinishedState;
 }
 
 void AudioSystem::pauseSound(int idx, bool paused)
 {
-  play_buffers->sounds[idx].paused = paused;
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  PlayingSound &sound = (*sounds)[idx];
+  if (sound.state != FinishedState) {
+    sound.state = paused ? PausedState : ReadyState;
+  }
 }
 
 bool AudioSystem::isSoundPaused(int idx)
 {
-  return play_buffers->sounds[idx].paused;
-}
-
-void AudioSystem::setSoundPos(int idx, int pos)
-{
-  SoundBuf &sounds = play_buffers->sounds;
-  sounds[idx].buffer_pos = pos;
-  sounds[idx].modified = true;
-}
-
-void AudioSystem::replaySound(int idx, int loops)
-{
-  SoundBuf &sounds = play_buffers->sounds;
-  sounds[idx].buffer_pos = 0;
-  sounds[idx].loop_count = loops;
-  sounds[idx].modified = true;
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  PlayingSound &sound = (*sounds)[idx];
+  return sound.state == PausedState;
 }
 
 void AudioSystem::update()
 {
-  SoundBuf &sounds = play_buffers->sounds;
-  CopyBuf &copies = play_buffers->copies;
   SDL_LockAudioDevice(dev_id);
-  int bytes_since_update = 
-    num_callbacks_since_update * audio_tmp_buf_len * sizeof(float);
+  std::lock_guard<std::mutex> guard(audio_mutex);
 
-  num_callbacks_since_update = 0;
-  copies.clear();
-  copies.reserve(sounds.size());
-
-  auto sound_iter = sounds.begin();
-  auto end_iter = sounds.end();
-  while (sound_iter != end_iter) {
-    if (!sound_iter->paused) {
-      // sound newly added, or user reset position, so don't modify position
-      if (sound_iter->modified) {
-        sound_iter->modified = false;
-      // update sound to actual position in copy
-      } else {
-        int new_pos;
-        // if mono sound advance buffer by half since data converted to stereo
-        if (sound_iter->sound->getSoundBuffer().numChannels() == 1) {
-          new_pos = sound_iter->buffer_pos + bytes_since_update / 2;
+  auto sound = sounds->begin();
+  auto sound_end = sounds->end();
+  while (sound != sound_end) {
+    // sound finished playing or was stopped
+    if (sound->state == FinishedState || sound->state == StoppedState) { 
+      // only unset mix_idx if it finished playing and wasn't stopped
+      if (sound->state == FinishedState) { 
+        if (sound->tag == SoundType) {
+          sound->sound->mix_idx = -1;
         } else {
-          new_pos = sound_iter->buffer_pos + bytes_since_update;
-        }
-        int sound_size = sound_iter->sound->getSoundBuffer().size();
-        // times sound finished playing since last update
-        // should be 0 or 1 if update is called consistantly.
-        // sound_size is never 0
-        int loops = new_pos / sound_size; 
-        sound_iter->buffer_pos = new_pos % sound_size;
-        // doesn't loop infinitely
-        if (sound_iter->loop_count != -1) {
-          sound_iter->loop_count -= loops;
-          if (sound_iter->loop_count < 0) {
-            int idx = sound_iter - sounds.begin();
-            removeSound(idx);
-            // check if removed last sound and break
-            if (idx == sounds.size()) {
-              break;
-            }
-            // end iter was invalidated in removeSound
-            end_iter = sounds.end();
-            continue;
-          }
+          sound->stream->mix_idx = -1;
         }
       }
 
-      copies.push_back(PlayingCopy(*sound_iter));
-    } // end if (!paused)
+      // swap sound to remove with last sound in list
+      int idx = sound - sounds->begin();
+      if (idx != sounds->size() - 1) { // not removing last sound
+        *sound = sounds->back();
+        if (sound->tag == SoundType) {
+          sound->sound->mix_idx = idx;
+        } else {
+          sound->stream->mix_idx = idx;
+        }
+        sounds->pop_back();
+        sound_end = sounds->end();
+        continue;
+      } else { // removing last sound
+        sounds->pop_back();
+        break;
+      }
+    }
 
-    ++sound_iter;
+    if (sound->tag == SoundType) {
+      sound->updateSound();
+    } else {
+      StreamBuffer &stream_buf = sound->stream->buffer;
+      // failed to advance in audioCallback, so try here
+      if (sound->streamSwapNeeded(stream_buf)) {
+        sound->streamSwapBuffers(stream_buf);
+        if (sound->state == FinishedState) { // finished or error occurred
+          continue; // will be removed at top of loop
+        }
+      }
+      sound->updateStream();
+    }
+
+    ++sound;
   }
 
   SDL_UnlockAudioDevice(dev_id);
+}
+
+void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
+{
+  memset(stream, 0, len);
+  std::unique_lock<std::mutex> guard(audio_mutex);
+
+  // Sounds can be added between locks, so use indexing and size(), instead 
+  // of iterators or range-based for loop. Nothing is removed until update.
+  for (int i = 0; i < (int)sounds->size(); ++i) {
+    // audio_mutex must be locked while using sound
+    PlayingSound &sound = (*sounds)[i];
+    if (sound.state == ReadyState) {
+      int total_copied = 0; 
+
+      if (sound.tag == SoundType) {
+        SoundBuffer &sound_buf = sound.sound->buffer;
+        if (sound_buf.numChannels() == 1) {
+          total_copied = copyMonoSound((uint8_t*)audio_tmp_buf, 
+                                       len, sound, sound_buf);
+        } else {
+          total_copied = copyStereoSound((uint8_t*)audio_tmp_buf, 
+                                         len, sound, sound_buf);
+        }
+      } else {
+        StreamBuffer &stream_buf = sound.stream->buffer;
+        if (stream_buf.numChannels() == 1) {
+          total_copied = copyMonoStream((uint8_t*)audio_tmp_buf, 
+                                        len, sound, stream_buf);
+        } else {
+          total_copied = copyStereoStream((uint8_t*)audio_tmp_buf, 
+                                          len, sound, stream_buf);
+        }
+      }
+
+      float rel_x = sound.x;
+      float rel_y = sound.y;
+      float left_vol = sound.volume;
+      float right_vol = sound.volume;
+      guard.unlock();
+      const int num_samples = total_copied / sizeof(float);
+      applyPosition(rel_x, rel_y, left_vol, right_vol);
+      applyVolumeFloat(audio_tmp_buf, num_samples, left_vol, right_vol);
+      mixStreamFloat((float*)stream, audio_tmp_buf, num_samples);
+      guard.lock();
+    }
+  }
+
+  const int num_samples = len / sizeof(float);
+  clampFloat((float*)stream, num_samples);
 }
 
 } // end namespace KameMix
@@ -278,19 +412,17 @@ void mixStreamFloat(float *target, float *source, int len)
   }
 }
 
-// Modify left and right channel volume by position. 
-// left_vol and right_vol must be initialized.
+// Modify left and right channel volume by position. Doesn't change if 
+// sound.x and sound.y == 0.
+// left_vol and right_vol must be initialized before calling.
 static
-void applyPosition(PlayingCopy &sound, float &left_vol, float &right_vol)
+void applyPosition(float rel_x, float rel_y, float &left_vol, float &right_vol)
 {
-  float relative_x = sound.x;
-  float relative_y = sound.y;
-  if (sound.listener != nullptr) {
-    relative_x = (relative_x - sound.listener->getX()) / sound.max_distance;
-    relative_y = (relative_y - sound.listener->getY()) / sound.max_distance;
+  if (rel_x == 0 && rel_y == 0) {
+    return;
   }
 
-  float distance = sqrt(relative_x * relative_x + relative_y * relative_y);
+  float distance = sqrt(rel_x * rel_x + rel_y * rel_y);
 
   if (distance >= 1.0f) {
     left_vol = right_vol = 0.0f;
@@ -306,24 +438,24 @@ void applyPosition(PlayingCopy &sound, float &left_vol, float &right_vol)
     float left_mod = 1.0f;
     float right_mod = 1.0f;
 
-    if (relative_x != 0.0f) { // not 90 or 270 degrees
-      float rads = atan(sound.y / sound.x);
-      if (relative_y >= 0.0f) { // quadrant 1 and 2
-        if (relative_x > 0.0f) { // quadrant 1
+    if (rel_x != 0.0f) { // not 90 or 270 degrees
+      float rads = atan(rel_y / rel_x);
+      if (rel_y >= 0.0f) { // quadrant 1 and 2
+        if (rel_x > 0.0f) { // quadrant 1
           float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
           left_mod = 1.0f - mod;
           right_mod = 1.0f + mod;
-        } else if (relative_x < 0.0f) { // quadrant 2
+        } else if (rel_x < 0.0f) { // quadrant 2
           float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
           left_mod = 1.0f + mod;
           right_mod = 1.0f - mod;
         }
       } else { // quadrants 3 and 4
-         if (relative_x < 0.0f) { // quadrant 3
+         if (rel_x < 0.0f) { // quadrant 3
           float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
           left_mod = 1.0f + mod;
           right_mod = 1.0f - mod;
-        } else if (relative_x > 0.0f) { // quadrant 4
+        } else if (rel_x > 0.0f) { // quadrant 4
           float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
           left_mod = 1.0f - mod;
           right_mod = 1.0f + mod;
@@ -351,150 +483,193 @@ void clampFloat(float *buf, int len)
 }
 
 static
-int copyAndAdvanceMonoCopy(uint8_t *buf, const int buf_len, 
-                           PlayingCopy &sound)
+int copyMonoSound(uint8_t *buf, const int buf_len, 
+                  PlayingSound &sound, SoundBuffer &sound_buf)
 {
-  const int half_buf_len = buf_len / 2;
-  int src_left = sound.buf.size() - sound.buffer_pos;
-  int half_cpy_amount = half_buf_len < src_left ? half_buf_len : src_left;
-  int total_half_copies = half_cpy_amount;
-
+  int half_buf_left = buf_len / 2;
+  int total_half_copied = 0;
   float *dst = (float*)buf; 
-  {
-    float *src = (float*)(sound.buf.data() + sound.buffer_pos); 
-    float *src_end = src + half_cpy_amount / sizeof(float); 
-    while (src != src_end) {
-      *dst++ = *src;
-      *dst++ = *src++;
+
+  while (true) {
+    // FinishedState from decrementLoopCount
+    if (sound.state == FinishedState) { 
+      break;
     }
-  }
+
+    int src_left = sound_buf.size() - sound.buffer_pos;
+    int half_cpy_amount = half_buf_left < src_left ? half_buf_left : src_left;
+
+    {
+      float *src = (float*)(sound_buf.data() + sound.buffer_pos); 
+      float *src_end = (float*)((uint8_t*)src + half_cpy_amount); 
+      while (src != src_end) {
+        *dst++ = *src;
+        *dst++ = *src++;
+      }
+    }
     
-  // didn't reach end of sound buffer
-  if (half_cpy_amount < src_left) { 
-    sound.buffer_pos += half_cpy_amount;;
-  } else {
-    // reached end of sound and not looping
-    if (sound.loop_count == 0) { 
-      sound.buffer_pos = -1; // remove copy
-    } else { // reached end of sound but are looping
+    total_half_copied += half_cpy_amount;
+
+    // didn't reach end of sound buffer
+    if (half_cpy_amount < src_left) { 
+      sound.buffer_pos += half_cpy_amount;;
+      break;
+    } else {
+      // reached end of sound
+      sound.decrementLoopCount();
       sound.buffer_pos = 0;
-      int half_cpy_left = half_buf_len - half_cpy_amount;
-      const int src_size = sound.buf.size();
+      half_buf_left -= half_cpy_amount;
+    } 
+  }
 
-      // decrement loop_count at least once
-      do {
-        if (sound.loop_count > 0) {
-          sound.loop_count -= 1;
-        } else if (sound.loop_count == 0) {
-          sound.buffer_pos = -1;
-          break;
-        } 
-
-        half_cpy_amount = half_cpy_left < src_size ? half_cpy_left : src_size;
-        float *src = (float*)sound.buf.data(); 
-        float *src_end = src + half_cpy_amount / sizeof(float); 
-        while (src != src_end) {
-          *dst++ = *src;
-          *dst++ = *src++;
-        }
-        half_cpy_left -= half_cpy_amount;
-        total_half_copies += half_cpy_amount;
-      } while (half_cpy_left > 0);
-
-      // last copy wasn't whole sound buffer
-      if (half_cpy_amount < src_size) {
-        sound.buffer_pos = half_cpy_amount;
-      // was whole sound, so decrement loop_count or set to remove if 0
-      } else if (sound.loop_count > 0) {
-        sound.loop_count -= 1;
-      } else if (sound.loop_count == 0) {
-        sound.buffer_pos = -1;
-      } // do nothing if sound.loop_count == -1
-    } // end else (loop_count != 0) 
-  } // end else (src_left <= half_buf_len)
-
-  return total_half_copies * 2;
+  return total_half_copied * 2;
 }
 
 static
-int copyAndAdvanceStereoCopy(uint8_t *buffer, const int buf_len, 
-                             PlayingCopy &sound)
+int copyStereoSound(uint8_t *buffer, const int buf_len, 
+                    PlayingSound &sound, SoundBuffer &sound_buf)
 {
-  int src_left = sound.buf.size() - sound.buffer_pos;
-  int cpy_amount = buf_len < src_left ? buf_len : src_left;
-  int total_copied = cpy_amount;
+  int buf_left = buf_len;
+  int total_copied = 0;
 
-  memcpy(buffer, sound.buf.data() + sound.buffer_pos, cpy_amount);
+  while (true) {
+    // FinishedState from decrementLoopCount
+    if (sound.state == FinishedState) { 
+      break;
+    }
 
-  // didn't reach end of sound buffer
-  if (src_left > buf_len) { 
-    sound.buffer_pos += buf_len;
-  } else {
-    // reached end of sound and not looping
-    if (sound.loop_count == 0) { 
-      sound.buffer_pos = -1; // remove copy
-    } else { // reached end of sound but are looping
+    int src_left = sound_buf.size() - sound.buffer_pos;
+    int cpy_amount = buf_left < src_left ? buf_left : src_left;
+
+    memcpy(buffer + total_copied, sound_buf.data() + sound.buffer_pos, 
+           cpy_amount);
+    total_copied += cpy_amount;
+
+    // didn't reach end of sound buffer
+    if (cpy_amount < src_left) { 
+      sound.buffer_pos += cpy_amount;;
+      break;
+    } else {
+      // reached end of sound
+      sound.decrementLoopCount();
       sound.buffer_pos = 0;
-      int cpy_left = buf_len - cpy_amount;
-      const int src_size = sound.buf.size();
-
-      // decrement loop_count at least once
-      do {
-        if (sound.loop_count > 0) {
-          sound.loop_count -= 1;
-        } else if (sound.loop_count == 0) {
-          sound.buffer_pos = -1;
-          break;
-        } 
-
-        cpy_amount = cpy_left < src_size ? cpy_left : src_size;
-        memcpy(buffer + total_copied, sound.buf.data(), cpy_amount);
-        cpy_left -= cpy_amount;
-        total_copied += cpy_amount;
-      } while (cpy_left > 0);
-
-      // last copy wasn't whole sound buffer
-      if (cpy_amount < src_size) {
-        sound.buffer_pos = cpy_amount;
-      // was whole sound, so decrement loop_count or set to remove if 0
-      } else if (sound.loop_count > 0) {
-        sound.loop_count -= 1;
-      } else if (sound.loop_count == 0) {
-        sound.buffer_pos = -1;
-      }
-    } // end else (loop_count != 0) 
-  } // end else (src_left <= buf_len)
+      buf_left -= cpy_amount;
+    } 
+  }
 
   return total_copied;
 }
 
-static 
-void audioCallback(void *udata, Uint8 *stream, const int len)
+static
+int copyMonoStream(uint8_t *buf, const int buf_len, 
+                   PlayingSound &stream, StreamBuffer &stream_buf)
 {
-  CopyBuf &copies = play_buffers->copies;
-  memset(stream, 0, len);
-  ++num_callbacks_since_update;
+  int half_buf_left = buf_len / 2;
+  // total copied from stream_buf before mono to stereo conversion
+  int total_half_copied = 0; 
+  float *dst = (float*)buf; 
 
-  for (auto &sound : copies) {
-    // skip sound that will be removed in update
-    if (sound.buffer_pos != -1) { 
-      int total_copied; 
-      if (sound.buf.numChannels() == 1) {
-        total_copied = 
-          copyAndAdvanceMonoCopy((uint8_t*)audio_tmp_buf, len, sound);
-      } else {
-        total_copied = 
-          copyAndAdvanceStereoCopy((uint8_t*)audio_tmp_buf, len, sound);
+  while (true) {
+    // FinishedState from decrementLoopCount or on error advancing
+    if (stream.state == FinishedState) { 
+      break;
+    }
+
+    int end_pos = stream_buf.endPos(); // -1 if not in buffer
+    int src_left;
+    if (end_pos <= stream.buffer_pos) {
+      src_left = stream_buf.size() - stream.buffer_pos;
+    } else {
+      src_left = end_pos - stream.buffer_pos;
+    }
+    int half_cpy_amount = half_buf_left < src_left ? half_buf_left : src_left;
+
+    {
+      float *src = (float*)(stream_buf.data() + stream.buffer_pos); 
+      float *src_end = (float*)((uint8_t*)src + half_cpy_amount); 
+      while (src != src_end) {
+        *dst++ = *src;
+        *dst++ = *src++;
       }
-      const int num_samples = total_copied / sizeof(float);
-      float left_vol = sound.volume;
-      float right_vol = sound.volume;
-      applyPosition(sound, left_vol, right_vol);
-      applyVolumeFloat(audio_tmp_buf, num_samples, left_vol, right_vol);
-      mixStreamFloat((float*)stream, audio_tmp_buf, num_samples);
+    }
+
+    total_half_copied += half_cpy_amount;
+    half_buf_left -= half_cpy_amount;
+      
+    // didn't reach end of stream or its main buffer
+    if (half_cpy_amount < src_left) { 
+      stream.buffer_pos += half_cpy_amount;;
+      break;
+    // reached end of buffer
+    } else if (stream.buffer_pos + half_cpy_amount == stream_buf.size()) { 
+      if (end_pos == stream_buf.size()) { // end of stream at end of buffer
+        // buffer_pos may be at end from last time and failed to swap buffers
+        if (half_cpy_amount > 0) { 
+          stream.decrementLoopCount();
+        }
+      }
+
+      if (!stream.streamSwapBuffers(stream_buf)) {
+        break;
+      }
+    } else { // end of stream and not end of buffer
+      stream.buffer_pos = end_pos;
+      stream.decrementLoopCount();
     }
   }
 
-  const int num_samples = len / sizeof(float);
-  clampFloat((float*)stream, num_samples);
+  return total_half_copied * 2;
 }
+
+static
+int copyStereoStream(uint8_t *buffer, const int buf_len, 
+                     PlayingSound &stream, StreamBuffer &stream_buf)
+{
+  int buf_left = buf_len;
+  int total_copied = 0; 
+
+  while (true) {
+    // FinishedState from decrementLoopCount or on error advancing
+    if (stream.state == FinishedState) { 
+      break;
+    }
+
+    int end_pos = stream_buf.endPos(); // -1 if not in buffer
+    int src_left;
+    if (end_pos <= stream.buffer_pos) {
+      src_left = stream_buf.size() - stream.buffer_pos;
+    } else {
+      src_left = end_pos - stream.buffer_pos;
+    }
+    int cpy_amount = buf_left < src_left ? buf_left : src_left;
+
+    memcpy(buffer + total_copied, stream_buf.data() + stream.buffer_pos, 
+           cpy_amount);
+    total_copied += cpy_amount;
+    buf_left -= cpy_amount;
+      
+    // didn't reach end of stream or its main buffer
+    if (cpy_amount < src_left) { 
+      stream.buffer_pos += cpy_amount;
+      break;
+    // reached end of buffer
+    } else if (stream.buffer_pos + cpy_amount == stream_buf.size()) { 
+      if (end_pos == stream_buf.size()) { // end of stream at end of buffer
+        // buffer_pos may be at end from last time and failed to swap buffers
+        if (cpy_amount > 0) { 
+          stream.decrementLoopCount();
+        }
+      }
+
+      if (!stream.streamSwapBuffers(stream_buf)) {
+        break;
+      }
+    } else { // end of stream and not end of buffer
+      stream.buffer_pos = end_pos;
+      stream.decrementLoopCount();
+    }
+  }
+
+  return total_copied;
+}
+

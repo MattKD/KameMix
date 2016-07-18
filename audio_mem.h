@@ -1,15 +1,30 @@
 #ifndef KAME_MIX_AUDIO_MEM_H
 #define KAME_MIX_AUDIO_MEM_H
 
+#include <new>
+
 namespace KameMix {
 
 //
 // Helper functions using user defined malloc,free,realloc
 //
-template <class T>
-T* km_alloc_type(int num)
+
+inline
+void km_free(void *ptr)
 {
-  T *tmp = (T*) KameMix::AudioSystem::getMalloc()(num * sizeof(T));
+  AudioSystem::getFree()(ptr);
+}
+
+inline
+void* km_malloc_(size_t len)
+{
+  return KameMix::AudioSystem::getMalloc()(len);
+}
+
+inline
+void* km_malloc(size_t len)
+{
+  void *tmp = km_malloc_(len);
   if (tmp) {
     return tmp;
   } else {
@@ -17,10 +32,16 @@ T* km_alloc_type(int num)
   }
 }
 
-template <class T>
-T* km_realloc_type(T *ptr, int num)
+inline
+void* km_realloc_(void *ptr, size_t len)
 {
-  T *tmp = (T*) KameMix::AudioSystem::getRealloc()(ptr, num * sizeof(T));
+  return KameMix::AudioSystem::getRealloc()(ptr, len);
+}
+
+inline
+void* km_realloc(void *ptr, size_t len)
+{
+  void *tmp = km_realloc_(ptr, len);
   if (tmp) {
     return tmp;
   } else {
@@ -41,7 +62,7 @@ T* km_new()
 }
 
 template <class T>
-T* km_new_n(int num)
+T* km_new_n(size_t num)
 {
   T *buf = (T*) KameMix::AudioSystem::getMalloc()(num * sizeof(T));
   if (buf) {

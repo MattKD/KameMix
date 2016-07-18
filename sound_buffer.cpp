@@ -1,7 +1,8 @@
 #include "sound_buffer.h"
 #include "audio_mem.h"
-#include <SDL.h>
-#include <vorbisfile.h>
+#include "vorbis_helper.h"
+#include "sdl_helper.h"
+#include <SDL_audio.h>
 #include <cassert>
 #include <cstring>
 #include <cctype>
@@ -42,17 +43,16 @@ bool SoundBuffer::load(const char *filename)
     return loadWAV(filename);
   }
 
+  AudioSystem::setError("Unsupported file type");
   return false;
 }
-
 
 bool SoundBuffer::loadWAV(const char *filename)
 {
   using std::unique_ptr;
-  FreeFunc km_free = AudioSystem::getFree();
-
-  Uint8 *wav_buf;
-  Uint32 wav_buf_len = 0;
+  release();
+  uint8_t *wav_buf;
+  uint32_t wav_buf_len = 0;
   SDL_AudioSpec wav_spec = { 0 };
 
   if (!SDL_LoadWAV(filename, &wav_spec, &wav_buf, &wav_buf_len)) {
@@ -60,107 +60,79 @@ bool SoundBuffer::loadWAV(const char *filename)
     return false;
   }
 
-  unique_ptr<Uint8, void(*)(Uint8*)> wav_buf_cleanup(wav_buf, SDL_FreeWAV);
+  unique_ptr<uint8_t, void(*)(uint8_t*)> wav_buf_cleanup(wav_buf, SDL_FreeWAV);
 
+  const SDL_AudioFormat dst_format = getOutputFormat();
+  const int dst_freq = AudioSystem::getFrequency();
+  const int channels = wav_spec.channels > 2 ? 2 : wav_spec.channels;
   SDL_AudioCVT cvt;
-  const SDL_AudioFormat format = AUDIO_F32SYS;
-  int build_cvt_result = 
-    SDL_BuildAudioCVT(&cvt, wav_spec.format, wav_spec.channels, wav_spec.freq, 
-                      format, wav_spec.channels, 
-                      AudioSystem::getFrequency());
-  if (build_cvt_result < 0) {
+  if (SDL_BuildAudioCVT(&cvt, wav_spec.format, wav_spec.channels, 
+                        wav_spec.freq, dst_format, channels, dst_freq) < 0) {
     AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return false;
   }
 
-  unique_ptr<Uint8, void (*)(void*)> dst_buf(nullptr, km_free);
-  int dst_buf_len;
+  uint8_t *dst_buf = nullptr;
+  unique_ptr<uint8_t*, void (*)(uint8_t**)> 
+    dst_buf_cleanup(&dst_buf, [](uint8_t **buf) { km_free(*buf); });
 
-  if (build_cvt_result == 0) {
-    Uint8 *tmp = km_alloc_type<uint8_t>(wav_buf_len + sizeof(MiscData));
-    dst_buf.reset(tmp);
-    dst_buf_len = wav_buf_len;
-    memcpy(dst_buf.get() + sizeof(int), wav_buf, wav_buf_len);
+  int audio_buf_len;
+  if (!cvt.needed) {
+    // max size of buffer is INT_MAX
+    if (wav_buf_len > INT_MAX) {
+      AudioSystem::setError("Audio file is too large\n");
+      return false;
+    }
+
+    dst_buf = (uint8_t*)km_malloc_(wav_buf_len + HEADER_SIZE);
+    if (!dst_buf) {
+      AudioSystem::setError("Out of memory");
+      return false;
+    }
+    audio_buf_len = wav_buf_len;
+    memcpy(dst_buf + HEADER_SIZE, wav_buf, wav_buf_len);
   } else {
+    if ((int64_t)cvt.len_mult * (int64_t)wav_buf_len > INT_MAX) {
+      AudioSystem::setError("Audio file is too large\n");
+      return false;
+    }
     cvt.len = wav_buf_len;
-    Uint8 *tmp = km_alloc_type<uint8_t>(cvt.len * cvt.len_mult + 
-      sizeof(MiscData));
-    dst_buf.reset(tmp);
-    cvt.buf = dst_buf.get() + sizeof(MiscData);
+    dst_buf = (uint8_t*)km_malloc_(cvt.len * cvt.len_mult + HEADER_SIZE);
+    if (!dst_buf) {
+      AudioSystem::setError("Out of memory");
+      return false;
+    }
+    cvt.buf = dst_buf + HEADER_SIZE;
     memcpy(cvt.buf, wav_buf, cvt.len);
 
     if (SDL_ConvertAudio(&cvt) != 0) {
       AudioSystem::setError("SDL_ConvertAudio failed\n");
-      return false;;
-    }
-    
-    dst_buf_len = cvt.len_cvt;
-    if (dst_buf_len < cvt.len * cvt.len_mult) {
-      Uint8 *tmp = km_realloc_type<uint8_t>(dst_buf.get(), 
-        dst_buf_len + sizeof(MiscData));
-      dst_buf.release(); // ptr was maybe moved or still same as tmp
-      dst_buf.reset(tmp);
-    }
-  }
-
-  release();
-  mdata = (MiscData*) dst_buf.get(); 
-  mdata->refcount = 1;
-  mdata->channels = wav_spec.channels;
-  buffer = dst_buf.release() + sizeof(MiscData);
-  buffer_size = dst_buf_len;
-
-  return true;
-}
-
-// return bufsize to fill data from OGG file.
-// returns -1 if an error occured
-static int calcBufSizeOGG(OggVorbis_File *vf, int channels, int *num_blocks)
-{
-  const int dst_freq = AudioSystem::getFrequency(); 
-  const int bytes_per_sample = sizeof(float);
-  const int bytes_per_block = channels * bytes_per_sample;
-
-  *num_blocks = (int)ov_pcm_total(vf, -1); 
-  if (*num_blocks == OV_EINVAL) {
-    AudioSystem::setError("File is unseekable\n");
-    return -1;
-  }
-
-  int max_src_freq = ov_info(vf, 0)->rate;
-  for (int i = ov_streams(vf) - 1; i > 0; --i) {
-    int src_freq = ov_info(vf, i)->rate;
-    if (src_freq > max_src_freq) {
-      max_src_freq = src_freq;
-    }
-  }
-
-  SDL_AudioCVT cvt;
-  int build_cvt_result = 
-    SDL_BuildAudioCVT(&cvt, AUDIO_F32SYS, channels, max_src_freq,
-                      AUDIO_F32SYS, channels, dst_freq); 
-  if (build_cvt_result < 0) {
-    AudioSystem::setError("SDL_BuildAudioCVT failed\n");
-    return -1;
-  }
-  return *num_blocks * bytes_per_block * cvt.len_mult;
-}
-
-static inline
-bool isMonoOGG(OggVorbis_File &vf)
-{
-  for (int i = ov_streams(&vf) - 1; i >= 0; --i) {
-    if (ov_info(&vf, i)->channels > 1) {
       return false;
     }
+    
+    const int block_size = channels * AudioSystem::getFormatSize();
+    audio_buf_len = (cvt.len_cvt / block_size) * block_size;
+    // try to shrink if at least 1KB unused
+    if ((cvt.len * cvt.len_mult - audio_buf_len) > 1024) {
+      uint8_t *tmp = 
+        (uint8_t*)km_realloc_(dst_buf, audio_buf_len + HEADER_SIZE);
+      // if fails do nothing, dst_buf is still good
+      if (tmp) {
+        dst_buf = tmp;
+      }
+    }
   }
+
+  uint8_t *audio_buf = dst_buf + HEADER_SIZE;
+  sdata = new (dst_buf) SharedData(audio_buf, audio_buf_len, channels);
+  dst_buf_cleanup.release(); // don't free dst_buf
   return true;
 }
 
 bool SoundBuffer::loadOGG(const char *filename)
 {
   using std::unique_ptr;
-  FreeFunc km_free = AudioSystem::getFree();
+  release();
   OggVorbis_File vf;
 
   if (ov_fopen(filename, &vf) != 0) {
@@ -171,79 +143,62 @@ bool SoundBuffer::loadOGG(const char *filename)
   unique_ptr<OggVorbis_File, int (*)(OggVorbis_File*)>  
     vf_cleanup(&vf, ov_clear);
 
-  ov_time_seek(&vf, 0);
-  bool is_mono_src = isMonoOGG(vf); // all bitsreams are mono
-
-  const int channels = is_mono_src ? 1 : 2;
-  const int dst_freq = AudioSystem::getFrequency();
-  const SDL_AudioFormat format = AUDIO_F32SYS;
+  ov_pcm_seek(&vf, 0);
+  const int channels = isMonoOGG(vf) ? 1 : 2;
   int last_src_freq = ov_info(&vf, 0)->rate;
-  SDL_AudioCVT cvt;
-  int build_cvt_result = 
-    SDL_BuildAudioCVT(&cvt, format, channels, last_src_freq, 
-                      format, channels, dst_freq); 
-  if (build_cvt_result < 0) {
-    AudioSystem::setError("SDL_BuildAudioCVT failed\n");
-    return false;
+  int audio_buf_len;
+  uint8_t *dst_buf;
+  // calc size of audio_buf including needed conversion
+  {
+    int64_t tmp_len = calcBufSizeOGG(vf, channels); 
+    if (tmp_len > INT_MAX) {
+      AudioSystem::setError("Audio file is too large\n");
+      return false;
+    }
+    if (tmp_len == -1) {
+      return false; // error set in caclBufSizeOGG
+    }
+    audio_buf_len = (int)tmp_len; 
+    dst_buf = (uint8_t*)km_malloc_(audio_buf_len + HEADER_SIZE);
+    if (!dst_buf) {
+      AudioSystem::setError("Out of memory");
+      return false;
+    }
   }
 
-  const int bytes_per_sample = sizeof(float);
-  const int bytes_per_block = channels * bytes_per_sample;
-  int blocks_left; // filled with number of total number of sample blocks
-  int buf_len = calcBufSizeOGG(&vf, channels, &blocks_left); 
-  if (buf_len == -1) {
-    // error set in caclBufSizeOGG
-    return false;
-  }
-  buf_len += sizeof(MiscData); // calcbufSizeOGG doesn't include MiscData
-
-  unique_ptr<uint8_t, FreeFunc> buf(km_alloc_type<uint8_t>(buf_len), km_free);
-  cvt.len = 0; // don't know len of data to be converted yet
-  cvt.buf = buf.get() + sizeof(MiscData); // point past MiscData
-  float *dst = (float*)cvt.buf;
+  unique_ptr<uint8_t*, void(*)(uint8_t**)> 
+    dst_buf_cleanup(&dst_buf, [](uint8_t **buf) { km_free(*buf); });
+  uint8_t *cvt_buf = dst_buf + HEADER_SIZE;
+  float *dst = (float*)cvt_buf;
   // pointer to array of channels, each channel is array of floats
   float **channel_buf; 
-  int section = 0;
+  int64_t sample_offset = 0;
+  int stream_idx = 0;
+  int64_t stream_samples = ov_pcm_total(&vf, 0);
+  const int num_streams = ov_streams(&vf);
   
   while (true) {
-    int samples_read = ov_read_float(&vf, &channel_buf, blocks_left, &section);
-    blocks_left -= samples_read;
+    int samples_read;
+    {
+      int tmp_idx;
+      samples_read = ov_read_float(&vf, &channel_buf, 0xFFFF, &tmp_idx);
+      assert(stream_idx == tmp_idx &&
+             "stream idx is detected before ov_read_float");
+    }
+    sample_offset += samples_read;
 
-    if (samples_read < 0) {
+    if (samples_read <= 0) {
+      assert(samples_read != 0 &&
+             "EOF should be detected before calling ov_read_float");
       AudioSystem::setError("ov_read_float error\n");
       return false;
-    } else if (samples_read == 0) {
-      break;
     } else {
-      int src_freq = ov_info(&vf, section)->rate;
-
-      // freq is different in this bitstream than last, so convert all data
-      // read and not converted if necessary 
-      if (src_freq != last_src_freq) {
-        cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
-        if (SDL_ConvertAudio(&cvt) < 0) {
-          AudioSystem::setError("SDL_ConvertAudio failed\n");
-          return false;
-        }
-        uint8_t *tmp = cvt.buf + cvt.len_cvt;
-        dst = (float*)tmp;
-        last_src_freq = src_freq;
-        build_cvt_result = 
-          SDL_BuildAudioCVT(&cvt, format, channels, src_freq, 
-                            format, channels, dst_freq); 
-        if (build_cvt_result < 0) {
-          AudioSystem::setError("SDL_BuildAudioCVT failed\n");
-          return false;
-        }
-        cvt.buf = tmp; // SDL_BuildAudioCVT sets buf to null
-      }
-
-      if (is_mono_src) { // src has only mono streams, so store as mono
+      if (channels == 1) { // src has only mono streams, so store as mono
         memcpy(dst, *channel_buf, samples_read * sizeof(float));
         dst += samples_read;
       } else { 
         // more than 1 channel but only care about 2
-        if (ov_info(&vf, section)->channels > 1) {
+        if (ov_info(&vf, stream_idx)->channels > 1) {
           float *chan = *channel_buf;
           float *chan2 = channel_buf[1];
           float *chan_end = chan + samples_read;
@@ -262,36 +217,78 @@ bool SoundBuffer::loadOGG(const char *filename)
           }
         }
       }
+
+      if (sample_offset == stream_samples) { // end of logical stream
+        ++stream_idx;
+        if (stream_idx == num_streams) {
+          stream_idx = 0;
+        }
+        int src_freq = ov_info(&vf, stream_idx)->rate;
+
+        // freq is different in this stream than last, or reached end of
+        // physical straem so convert all data not converted yet if necessary 
+        if (src_freq != last_src_freq || stream_idx == 0) {
+          const int dst_freq = AudioSystem::getFrequency();
+          const SDL_AudioFormat format = getOutputFormat();
+          SDL_AudioCVT cvt;
+          if (SDL_BuildAudioCVT(&cvt, format, channels, last_src_freq, 
+                                format, channels, dst_freq) < 0) {
+            AudioSystem::setError("SDL_BuildAudioCVT failed\n");
+            return false;
+          }
+          cvt.buf = cvt_buf;
+          cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
+          if (cvt.needed) {
+            if (SDL_ConvertAudio(&cvt) < 0) {
+              AudioSystem::setError("SDL_ConvertAudio failed\n");
+              return false;
+            }
+            const int block_size = channels * AudioSystem::getFormatSize();
+            cvt_buf += (cvt.len_cvt / block_size) * block_size;
+            dst = (float*)cvt_buf;
+          }
+
+          if (stream_idx == 0) { // reached end of physical stream
+            break;
+          }
+          last_src_freq = src_freq;
+        }
+        sample_offset = 0;
+        stream_samples = ov_pcm_total(&vf, stream_idx);
+      }
     }
   }
 
-  // do final conversion if needed
-  if (build_cvt_result > 0) {
-    cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
-    if (SDL_ConvertAudio(&cvt) < 0) {
-      AudioSystem::setError("SDL_ConvertAudio failed\n");
-      return false;
+  uint8_t *audio_buf = dst_buf + HEADER_SIZE;
+  // shrink buffer at least 1KB unused memory
+  const int audio_buf_used = (uint8_t*)dst - audio_buf;
+  if (audio_buf_len - audio_buf_used > 1024) { 
+    uint8_t *tmp = 
+      (uint8_t*)km_realloc_(dst_buf, audio_buf_used + HEADER_SIZE);
+    // if fails do nothing, dst_buf is still good
+    if (tmp) {
+      dst_buf = tmp;
+      audio_buf = dst_buf + HEADER_SIZE;
     }
-    cvt.buf += cvt.len_cvt;
-    dst = (float*)cvt.buf;
-  }
-  // shrink buffer if bigger than needed
-  int buf_len_used = (uint8_t*)dst - buf.get(); // including MiscData
-  if (buf_len_used < buf_len) {
-    buf_len = buf_len_used;
-    uint8_t *tmp_buf = km_realloc_type<uint8_t>(buf.get(), buf_len);
-    buf.release();
-    buf.reset(tmp_buf);
   }
 
-  release();
-  mdata = (MiscData*) buf.get();
-  mdata->refcount = 1;
-  mdata->channels = channels;
-  buffer = buf.release() + sizeof(MiscData);
-  buffer_size = buf_len - sizeof(MiscData);
+  sdata = new(dst_buf) SharedData(audio_buf, audio_buf_len, channels);
+  dst_buf_cleanup.release(); // don't free dst_buf
 
   return true;
 }
+
+void SoundBuffer::release()
+{
+  if (sdata != nullptr) {
+    if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
+      std::atomic_thread_fence(std::memory_order_acquire);
+      sdata->~SharedData();
+      km_free(sdata);
+      sdata = nullptr;
+    }
+  }
+}
+
 
 } // end namespace KameMix

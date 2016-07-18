@@ -1,47 +1,35 @@
-#ifndef SOUND_BUFFER_H
-#define SOUND_BUFFER_H
+#ifndef KAME_MIX_SOUND_BUFFER_H
+#define KAME_MIX_SOUND_BUFFER_H
 
 #include "audio_system.h"
 #include <cstdint>
 #include <cstddef>
+#include <atomic>
 
 namespace KameMix {
 
 class SoundBuffer {
 public:
-  SoundBuffer() : buffer{nullptr}, mdata{nullptr}, buffer_size{0} { }
+  SoundBuffer() : sdata{nullptr} { }
 
-  SoundBuffer(const char *filename)
-    : buffer{nullptr}, mdata{nullptr}, buffer_size{0} { load(filename); }
+  SoundBuffer(const char *filename) : sdata{nullptr} { load(filename); }
 
-  SoundBuffer::SoundBuffer(const SoundBuffer &other) 
-    : mdata{other.mdata},buffer{other.buffer}, 
-      buffer_size{other.buffer_size}
+  SoundBuffer::SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
   {
-    if (mdata) {
-      mdata->refcount += 1;
-    }
+    incRefCount();
   }
 
-  SoundBuffer::SoundBuffer(SoundBuffer &&other) 
-    : mdata{other.mdata},buffer{other.buffer}, 
-      buffer_size{other.buffer_size}
+  SoundBuffer::SoundBuffer(SoundBuffer &&other) : sdata{other.sdata}
   {
-    other.mdata = nullptr;
-    other.buffer = nullptr;
-    other.buffer_size = 0;
+    other.sdata = nullptr;
   }
 
   SoundBuffer& operator=(const SoundBuffer &other)
   {
     if (this != &other) {
       release();
-      mdata = other.mdata;
-      buffer = other.buffer;
-      buffer_size = other.buffer_size;
-      if (mdata) {
-        mdata->refcount++;
-      }
+      sdata = other.sdata;
+      incRefCount();
     }
     return *this;
   }
@@ -50,12 +38,8 @@ public:
   {
     if (this != &other) {
       release();
-      mdata = other.mdata;
-      buffer = other.buffer;
-      buffer_size = other.buffer_size;
-      other.mdata = nullptr;
-      other.buffer = nullptr;
-      other.buffer_size = 0;
+      sdata = other.sdata;
+      other.sdata = nullptr;
     }
     return *this;
   }
@@ -65,35 +49,62 @@ public:
   bool load(const char *filename);
   bool loadOGG(const char *filename);
   bool loadWAV(const char *filename);
-  bool isLoaded() const { return mdata != nullptr; }
-  void release()
-  {
-    if (mdata != nullptr) {
-      if (mdata->refcount == 1) {
-        AudioSystem::getFree()(mdata); // includes audio buffer
-        mdata = nullptr;
-        buffer = nullptr;
-        buffer_size = 0;
-      } else {
-        mdata->refcount -= 1;
-      }
-    }
+  bool isLoaded() const { return sdata != nullptr; }
+  // Release loaded file and free allocated data. isLoaded() is false after.
+  void release();
+  int useCount() const { return sdata ? sdata->refcount.load() : 0; }
+
+  // Pointer to currently loaded audio data.
+  uint8_t* data() 
+  { 
+    assert(sdata && "SoundBuffer must be loaded before calling data()");
+    return sdata->buffer; 
   }
 
-  uint8_t* data() { return buffer; }
-  int useCount() const { return mdata ? mdata->refcount : 0; }
-  int size() const { return buffer_size; }
-  int numChannels() const { return mdata ? mdata->channels : 0; }
+  // Size in bytes of audio data in data() buffer.
+  int size() const 
+  { 
+    assert(sdata && "SoundBuffer must be loaded before calling size()");
+    return sdata->buffer_size; 
+  }
+
+  // Returns 1 for mono, 2 for stereo.
+  int numChannels() const 
+  { 
+    assert(sdata && 
+           "SoundBuffer must be loaded before calling numChannels()");
+    return sdata->channels; 
+  }
+
+  // Returns size of audio format * number of channels in bytes.
+  int sampleBlockSize() const 
+  { 
+    assert(sdata && 
+           "SoundBuffer must be loaded before calling sampleBlockSize()");
+    return sdata->channels * AudioSystem::getFormatSize(); 
+  }
 
 private:
-  struct alignas(std::max_align_t) MiscData {
-    int refcount;
+  struct alignas(std::max_align_t) SharedData {
+    SharedData(uint8_t *buf, int buf_len, int channels) 
+      : refcount{1}, buffer{buf}, buffer_size{buf_len}, channels{channels} 
+    { }
+    uint8_t *buffer;
+    std::atomic<int> refcount;
+    int buffer_size;
     int channels;
   };
 
-  MiscData *mdata;
-  uint8_t *buffer;
-  int buffer_size;
+  static const size_t HEADER_SIZE = sizeof(SharedData);
+
+  void incRefCount() 
+  { 
+    if (sdata) {
+      sdata->refcount.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+
+  SharedData *sdata;
 };
 
 } // end namespace KameMix

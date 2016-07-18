@@ -1,5 +1,5 @@
-#ifndef SOUND_H
-#define SOUND_H
+#ifndef KAME_MIX_SOUND_H
+#define KAME_MIX_SOUND_H
 
 #include "audio_system.h"
 #include "sound_buffer.h"
@@ -13,13 +13,8 @@ public:
     x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
 
   explicit
-  Sound::Sound(const char *filename, float volume = 1.0f) : 
-    group{nullptr}, buffer(filename), mix_idx{-1}, volume{volume}, 
-    x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
-
-  explicit
-  Sound::Sound(const SoundBuffer &buf, float volume = 1.0f) :
-    group{nullptr}, buffer(buf), mix_idx{-1}, volume{volume}, 
+  Sound::Sound(const char *filename) : 
+    group{nullptr}, buffer(filename), mix_idx{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
 
   Sound::Sound(const Sound &other) : 
@@ -30,6 +25,7 @@ public:
   Sound& Sound::operator=(const Sound &other)
   {
     if (this != &other) {
+      stop();
       buffer = other.buffer;
       group = other.group;
       volume = other.volume;
@@ -37,51 +33,88 @@ public:
       y = other.y;
       max_distance = other.max_distance;
       listener = other.listener;
-      stop();
     }
     return *this;
   }
 
   Sound::~Sound() { stop(); }
 
-  const SoundBuffer& Sound::getSoundBuffer() const { return buffer; }
-  SoundBuffer& Sound::getSoundBuffer() { return buffer; }
-
   bool Sound::load(const char *filename) { return buffer.load(filename); }
-  bool Sound::loadOGG(const char *filename) { return buffer.loadOGG(filename); }
-  bool Sound::loadWAV(const char *filename) { return buffer.loadWAV(filename); }
-  void Sound::release() { buffer.release(); }
+  bool Sound::loadOGG(const char *filename) 
+  { 
+    stop();
+    return buffer.loadOGG(filename); 
+  }
+  bool Sound::loadWAV(const char *filename) 
+  { 
+    stop();
+    return buffer.loadWAV(filename); 
+  }
+  void Sound::release() 
+  { 
+    stop(); 
+    buffer.release(); 
+  }
   bool Sound::isLoaded() const { return buffer.isLoaded(); }
 
-  float Sound::getVolume() const { return volume; }
-  void Sound::setVolume(float v) { volume = v; }
+  float getVolume() const { return volume; }
+  void setVolume(float v) { volume = v; }
+  float getVolumeInGroup() const
+  {
+    if (group) {
+      return group->getVolume() * volume;
+    }
+    return volume;
+  }
 
-  float Sound::getX() const { return x; }
-  float Sound::getY() const { return y; }
-  void Sound::setPos(float x_, float y_)
+  float getX() const { return x; }
+  float getY() const { return y; }
+  void setPos(float x_, float y_)
   {
     x = x_;
     y = y_;
   }
-  void Sound::moveBy(float dx, float dy)
+  void moveBy(float dx, float dy)
   {
     x += dx;
     y += dy;
   }
-  float Sound::getMaxDistance() const { return max_distance; }
-  void Sound::setMaxDistance(float distance) { max_distance = distance; }
+  float getMaxDistance() const { return max_distance; }
+  void setMaxDistance(float distance) { max_distance = distance; }
+
+  void getRelativeDistance(float &x, float &y) const
+  {
+    x = this->x;
+    y = this->y;
+    if (listener) {
+      x = (x - listener->getX()) / getMaxDistance();
+      y = (y - listener->getY()) / getMaxDistance();
+    }
+  }
 
   Group* Sound::getGroup() const { return group; }
   void Sound::setGroup(Group &group) { this->group = &group; }
   Listener* Sound::getListener() const { return listener; }
   void Sound::setListener(Listener &listener) { this->listener = &listener; }
 
-  void Sound::play(int loops) 
+  void Sound::play(int loops, bool paused = false) 
   {
-    if (mix_idx == -1) {
-      AudioSystem::addSound(this, loops);
-    } else {
-      AudioSystem::replaySound(mix_idx, loops);
+    if (buffer.isLoaded()) {
+      stop();
+      AudioSystem::addSound(this, loops, 0, paused);
+    }
+  }
+
+  void Sound::playAt(int loops, double sec, bool paused = false) 
+  {
+    if (buffer.isLoaded()) {
+      stop();
+      int sample_pos = (int) (sec * AudioSystem::getFrequency());
+      int byte_pos = sample_pos * buffer.sampleBlockSize();
+      if (byte_pos < 0 || byte_pos >= buffer.size()) {
+        byte_pos = 0;
+      }
+      AudioSystem::addSound(this, loops, byte_pos, paused);
     }
   }
 
@@ -89,12 +122,13 @@ public:
   {
     if (mix_idx != -1) {
       AudioSystem::removeSound(mix_idx);
+      mix_idx = -1;
     }
   }
 
   bool Sound::isPlaying() const
   {
-    return mix_idx != -1;
+    return mix_idx != -1 && AudioSystem::isSoundFinished(mix_idx) == false;
   }
 
   void Sound::setPaused(bool paused)
@@ -106,17 +140,8 @@ public:
 
   bool Sound::isPaused() const
   {
-    if (mix_idx != -1) {
-      return AudioSystem::isSoundPaused(mix_idx);
-    }
-    return false;
+    return mix_idx != -1 && AudioSystem::isSoundPaused(mix_idx);
   }
-
-  /*
-  void setSoundPos(int sec, int msec);
-  void rewind(int sec, int msec);
-  void fastforward(int sec, int msec);
-  */
 
 private:
   SoundBuffer buffer;

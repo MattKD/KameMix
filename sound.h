@@ -97,15 +97,16 @@ public:
   Listener* Sound::getListener() const { return listener; }
   void Sound::setListener(Listener &listener) { this->listener = &listener; }
 
-  void Sound::play(int loops, bool paused = false) 
+  void Sound::play(int loops, bool paused = false, float fade_secs = 0.0f) 
   {
     if (buffer.isLoaded()) {
       stop();
-      AudioSystem::addSound(this, loops, 0, paused);
+      AudioSystem::addSound(this, loops, 0, paused, fade_secs);
     }
   }
 
-  void Sound::playAt(int loops, double sec, bool paused = false) 
+  void Sound::playAt(int loops, double sec, bool paused = false, 
+                     float fade_secs = 0.0f) 
   {
     if (buffer.isLoaded()) {
       stop();
@@ -114,7 +115,7 @@ public:
       if (byte_pos < 0 || byte_pos >= buffer.size()) {
         byte_pos = 0;
       }
-      AudioSystem::addSound(this, loops, byte_pos, paused);
+      AudioSystem::addSound(this, loops, byte_pos, paused, fade_secs);
     }
   }
 

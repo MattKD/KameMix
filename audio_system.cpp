@@ -8,6 +8,9 @@
 #include <cstdint>
 #include <vector>
 
+#include <iostream>
+using std::cout;
+
 #define PI_F 3.141592653589793f
 
 namespace KameMix {
@@ -25,16 +28,16 @@ enum PlayingState : uint8_t {
 };
 
 struct PlayingSound {
-  PlayingSound(Sound *s, int loops, int buf_pos, bool paused) :
-    tag{SoundType}, sound{s}, buffer_pos{buf_pos}, loop_count{loops}, 
-    state{ReadyState}
+  PlayingSound(Sound *s, int loops, int buf_pos, bool paused, float fade) :
+    sound{s}, buffer_pos{buf_pos}, loop_count{loops}, fade_total{fade},
+    fade_time{0.0f}, tag{SoundType}, state{ReadyState}
   { 
     updateSound();
   }
 
-  PlayingSound(Stream *s, int loops, int buf_pos, bool paused) :
-    tag{StreamType}, stream{s}, buffer_pos{buf_pos}, loop_count{loops}, 
-    state{ReadyState}
+  PlayingSound(Stream *s, int loops, int buf_pos, bool paused, float fade) :
+    stream{s}, buffer_pos{buf_pos}, loop_count{loops}, fade_total{fade},
+    fade_time{0.0f}, tag{StreamType}, state{ReadyState}
   { 
     updateStream();
   }
@@ -95,6 +98,8 @@ struct PlayingSound {
   int loop_count; // -1 for infinite loop, 0 to play once, n to loop n times
   float volume; // volume of sound * group
   float x, y; // relative position from listener
+  float fade_total; // fadein/fadeout total time in sec
+  float fade_time; // position in fade
   PlayingType tag;
   PlayingState state;
 };
@@ -131,6 +136,7 @@ static SDL_AudioDeviceID dev_id;
 static float *audio_tmp_buf;
 static int audio_tmp_buf_len;
 static std::mutex audio_mutex;
+static float secs_per_callback;
 
 namespace KameMix {
 
@@ -202,6 +208,8 @@ bool AudioSystem::init(int freq, int sample_buf_size,
 
   audio_tmp_buf_len = dev_spec.samples * dev_spec.channels;
   audio_tmp_buf = (float*)km_malloc(sizeof(float) * audio_tmp_buf_len);
+  
+  secs_per_callback = (float)dev_spec.samples / (float)AudioSystem::frequency;
 
   sounds = km_new<SoundBuf>();
   sounds->reserve(256);
@@ -229,17 +237,19 @@ void AudioSystem::shutdown()
   sounds = nullptr;
 }
 
-void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused)
+void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
+                           float fade)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  sounds->push_back(PlayingSound(sound, loops, pos, paused));
+  sounds->push_back(PlayingSound(sound, loops, pos, paused, fade));
   sound->mix_idx = sounds->size() - 1;
 }
 
-void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused)
+void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
+                            float fade)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  sounds->push_back(PlayingSound(stream, loops, pos, paused));
+  sounds->push_back(PlayingSound(stream, loops, pos, paused, fade));
   stream->mix_idx = sounds->size() - 1;
 }
 
@@ -366,6 +376,20 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
       float rel_y = sound.y;
       float left_vol = sound.volume;
       float right_vol = sound.volume;
+      if (sound.fade_total > 0.0f) {
+        //cout << "fade_total = " << sound.fade_total << "\n";
+        //cout << "fade_time = " << sound.fade_time << "\n";
+        float fade_percent = sound.fade_time / sound.fade_total;
+        sound.fade_time += secs_per_callback;
+        if (sound.fade_time >= sound.fade_total) {
+          sound.fade_total = 0.0f;
+        }
+        //cout << "fade_time 2 = " << sound.fade_time << "\n";
+        //cout << "fade_percent = " << fade_percent << "\n";
+        left_vol *= fade_percent;
+        right_vol *= fade_percent;
+      }
+
       guard.unlock();
       const int num_samples = total_copied / sizeof(float);
       applyPosition(rel_x, rel_y, left_vol, right_vol);

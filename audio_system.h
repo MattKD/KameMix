@@ -83,8 +83,10 @@ public:
   static void setError(const char *error, ...);
 
 private:
-  static void addSound(Sound *sound, int loops, int pos, bool paused);
-  static void addStream(Stream *stream, int loops, int pos, bool paused);
+  static void addSound(Sound *sound, int loops, int pos, bool paused,
+                       float fade);
+  static void addStream(Stream *stream, int loops, int pos, bool paused,
+                        float fade);
   static void removeSound(int idx); // Sound and Stream
   static bool isSoundFinished(int idx);
   static void pauseSound(int idx, bool paused); // does nothing if finished.

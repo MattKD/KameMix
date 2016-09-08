@@ -97,7 +97,7 @@ public:
   Listener* Stream::getListener() const { return listener; }
   void Stream::setListener(Listener &listener) { this->listener = &listener; }
 
-  void Stream::play(int loops, bool paused = false) 
+  void Stream::play(int loops, bool paused = false, float fade_secs = 0.0f) 
   {
     if (isLoaded()) {
       stop();
@@ -114,11 +114,12 @@ public:
         start_pos = 0;
       }
 
-      AudioSystem::addStream(this, loops, start_pos, paused);
+      AudioSystem::addStream(this, loops, start_pos, paused, fade_secs);
     }
   }
 
-  void Stream::playAt(int loops, double sec, bool paused = false) 
+  void Stream::playAt(int loops, double sec, bool paused = false,
+                      float fade_secs = 0.0f) 
   {
     if (isLoaded()) {
       stop();
@@ -139,7 +140,7 @@ public:
         byte_pos = 0;
       }
 
-      AudioSystem::addStream(this, loops, byte_pos, paused);
+      AudioSystem::addStream(this, loops, byte_pos, paused, fade_secs);
     }
   }
 

@@ -119,11 +119,13 @@ public:
     }
   }
 
-  void Sound::stop()
+  void Sound::stop(float fade_secs = 0.0f)
   {
     if (mix_idx != -1) {
-      AudioSystem::removeSound(mix_idx);
-      mix_idx = -1;
+      AudioSystem::removeSound(mix_idx, fade_secs);
+      if (fade_secs <= 0.0f) {
+        mix_idx = -1;
+      }
     }
   }
 

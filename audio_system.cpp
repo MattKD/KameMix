@@ -20,6 +20,7 @@ enum PlayingType : uint8_t {
 enum PlayingState : uint8_t {
   ReadyState,
   StoppedState,
+  FadeOutState,
   FinishedState,
   PausedState
 };
@@ -250,11 +251,18 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
   stream->mix_idx = sounds->size() - 1;
 }
 
-void AudioSystem::removeSound(int idx)
+void AudioSystem::removeSound(int idx, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   PlayingSound &sound = (*sounds)[idx];
-  sound.state = StoppedState;
+  if (fade_secs > 0.0f) {
+    sound.state = FadeOutState;
+    sound.fade_time = fade_secs;
+    sound.fade_total = fade_secs;
+  } else {
+    sound.state = StoppedState;
+    // Sound and Stream mix_idx set to -1 in stop
+  }
 }
 
 bool AudioSystem::isSoundFinished(int idx)
@@ -346,7 +354,7 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
   for (int i = 0; i < (int)sounds->size(); ++i) {
     // audio_mutex must be locked while using sound
     PlayingSound &sound = (*sounds)[i];
-    if (sound.state == ReadyState) {
+    if (sound.state == ReadyState || sound.state == FadeOutState) {
       int total_copied = 0; 
 
       if (sound.tag == SoundType) {
@@ -375,10 +383,20 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
       float right_vol = sound.volume;
       if (sound.fade_total > 0.0f) {
         float fade_percent = sound.fade_time / sound.fade_total;
-        sound.fade_time += secs_per_callback;
-        if (sound.fade_time >= sound.fade_total) {
-          sound.fade_total = 0.0f;
-          sound.fade_time = 0.0f;
+        if (sound.state == FadeOutState) {
+          sound.fade_time -= secs_per_callback;
+          if (sound.fade_time <= 0.0f) {
+            // Finished not Stopped state, so mix_idx is unset in update
+            sound.state = FinishedState; 
+            sound.fade_total = 0.0f;
+            sound.fade_time = 0.0f;
+          }
+        } else {
+          sound.fade_time += secs_per_callback;
+          if (sound.fade_time >= sound.fade_total) {
+            sound.fade_total = 0.0f;
+            sound.fade_time = 0.0f;
+          }
         }
         left_vol *= fade_percent;
         right_vol *= fade_percent;

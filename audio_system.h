@@ -87,7 +87,7 @@ private:
                        float fade);
   static void addStream(Stream *stream, int loops, int pos, bool paused,
                         float fade);
-  static void removeSound(int idx); // Sound and Stream
+  static void removeSound(int idx, float fade_secs); // Sound and Stream
   static bool isSoundFinished(int idx);
   static void pauseSound(int idx, bool paused); // does nothing if finished.
   static bool isSoundPaused(int idx); // returns false if playing or finished.

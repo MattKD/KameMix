@@ -8,9 +8,6 @@
 #include <cstdint>
 #include <vector>
 
-#include <iostream>
-using std::cout;
-
 #define PI_F 3.141592653589793f
 
 namespace KameMix {
@@ -377,15 +374,12 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
       float left_vol = sound.volume;
       float right_vol = sound.volume;
       if (sound.fade_total > 0.0f) {
-        //cout << "fade_total = " << sound.fade_total << "\n";
-        //cout << "fade_time = " << sound.fade_time << "\n";
         float fade_percent = sound.fade_time / sound.fade_total;
         sound.fade_time += secs_per_callback;
         if (sound.fade_time >= sound.fade_total) {
           sound.fade_total = 0.0f;
+          sound.fade_time = 0.0f;
         }
-        //cout << "fade_time 2 = " << sound.fade_time << "\n";
-        //cout << "fade_percent = " << fade_percent << "\n";
         left_vol *= fade_percent;
         right_vol *= fade_percent;
       }

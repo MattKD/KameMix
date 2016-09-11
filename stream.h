@@ -8,24 +8,24 @@ namespace KameMix {
 
 class Stream {
 public:
-  Stream::Stream() : 
+  Stream() : 
     group{nullptr}, mix_idx{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
 
   explicit
-  Stream::Stream(const char *filename, double sec = 0.0) : 
+  Stream(const char *filename, double sec = 0.0) : 
     group{nullptr}, mix_idx{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, listener{nullptr} 
   { 
     load(filename, sec); 
   }
 
-  Stream::Stream(const Stream &other) = delete;
-  Stream& Stream::operator=(const Stream &other) = delete;
+  Stream(const Stream &other) = delete;
+  Stream& operator=(const Stream &other) = delete;
 
-  Stream::~Stream() { stop(); }
+  ~Stream() { stop(); }
 
-  bool Stream::load(const char *filename, double sec = 0.0) 
+  bool load(const char *filename, double sec = 0.0) 
   { 
     stop();
     if (buffer.load(filename, sec)) {
@@ -37,7 +37,7 @@ public:
     return false;
   }
 
-  bool Stream::loadOGG(const char *filename, double sec = 0.0) 
+  bool loadOGG(const char *filename, double sec = 0.0) 
   { 
     stop();
     if (buffer.loadOGG(filename, sec)) {
@@ -49,16 +49,16 @@ public:
     return false;
   }
 
-  void Stream::release() 
+  void release() 
   { 
     stop(); 
     buffer.release(); 
   }
 
-  bool Stream::isLoaded() { return buffer.isLoaded(); }
+  bool isLoaded() { return buffer.isLoaded(); }
 
-  float Stream::getVolume() const { return volume; }
-  void Stream::setVolume(float v) { volume = v; }
+  float getVolume() const { return volume; }
+  void setVolume(float v) { volume = v; }
   float getVolumeInGroup() const
   {
     if (group) {
@@ -67,20 +67,20 @@ public:
     return volume;
   }
 
-  float Stream::getX() const { return x; }
-  float Stream::getY() const { return y; }
-  void Stream::setPos(float x_, float y_)
+  float getX() const { return x; }
+  float getY() const { return y; }
+  void setPos(float x_, float y_)
   {
     x = x_;
     y = y_;
   }
-  void Stream::moveBy(float dx, float dy)
+  void moveBy(float dx, float dy)
   {
     x += dx;
     y += dy;
   }
-  float Stream::getMaxDistance() const { return max_distance; }
-  void Stream::setMaxDistance(float distance) { max_distance = distance; }
+  float getMaxDistance() const { return max_distance; }
+  void setMaxDistance(float distance) { max_distance = distance; }
 
   void getRelativeDistance(float &x, float &y) const
   {
@@ -92,12 +92,17 @@ public:
     }
   }
 
-  Group* Stream::getGroup() const { return group; }
-  void Stream::setGroup(Group &group) { this->group = &group; }
-  Listener* Stream::getListener() const { return listener; }
-  void Stream::setListener(Listener &listener) { this->listener = &listener; }
+  Group* getGroup() const { return group; }
+  void setGroup(Group &group) { this->group = &group; }
+  Listener* getListener() const { return listener; }
+  void setListener(Listener &listener) { this->listener = &listener; }
 
-  void Stream::play(int loops, bool paused = false, float fade_secs = 0.0f) 
+  void play(int loops, bool paused = false)
+  {
+    fadein(loops, 0.0f, paused);
+  }
+
+  void fadein(int loops, float fade_secs, bool paused = false) 
   {
     if (isLoaded()) {
       stop();
@@ -118,8 +123,12 @@ public:
     }
   }
 
-  void Stream::playAt(int loops, double sec, bool paused = false,
-                      float fade_secs = 0.0f) 
+  void playAt(int loops, double sec, bool paused = false)
+  {
+    fadeinAt(loops, sec, 0.0f, paused);
+  }
+
+  void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
   {
     if (isLoaded()) {
       stop();
@@ -144,29 +153,32 @@ public:
     }
   }
 
-  void Stream::stop(float fade_secs = 0.0f)
+  void stop()
+  {
+    fadeout(0.0f);
+    mix_idx = -1;
+  }
+
+  void fadeout(float fade_secs)
   {
     if (mix_idx != -1) {
       AudioSystem::removeSound(mix_idx, fade_secs);
-      if (fade_secs <= 0.0f) {
-        mix_idx = -1;
-      }
     }
   }
 
-  bool Stream::isPlaying() const
+  bool isPlaying() const
   {
     return mix_idx != -1 && AudioSystem::isSoundFinished(mix_idx) == false;
   }
 
-  void Stream::setPaused(bool paused)
+  void setPaused(bool paused)
   {
     if (mix_idx != -1) {
       AudioSystem::pauseSound(mix_idx, paused);
     }
   }
 
-  bool Stream::isPaused() const
+  bool isPaused() const
   {
     return mix_idx != -1 && AudioSystem::isSoundPaused(mix_idx);
   }

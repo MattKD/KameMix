@@ -8,21 +8,21 @@ namespace KameMix {
 
 class Sound {
 public:
-  Sound::Sound() : 
+  Sound() : 
     group{nullptr}, mix_idx{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
 
   explicit
-  Sound::Sound(const char *filename) : 
+  Sound(const char *filename) : 
     group{nullptr}, buffer(filename), mix_idx{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
 
-  Sound::Sound(const Sound &other) : 
+  Sound(const Sound &other) : 
     buffer(other.buffer), group{other.group}, mix_idx{-1}, volume{other.volume}, 
     x{other.x}, y{other.y}, max_distance{other.max_distance}, 
     listener{other.listener} { }
 
-  Sound& Sound::operator=(const Sound &other)
+  Sound& operator=(const Sound &other)
   {
     if (this != &other) {
       stop();
@@ -37,25 +37,25 @@ public:
     return *this;
   }
 
-  Sound::~Sound() { stop(); }
+  ~Sound() { stop(); }
 
-  bool Sound::load(const char *filename) { return buffer.load(filename); }
-  bool Sound::loadOGG(const char *filename) 
+  bool load(const char *filename) { return buffer.load(filename); }
+  bool loadOGG(const char *filename) 
   { 
     stop();
     return buffer.loadOGG(filename); 
   }
-  bool Sound::loadWAV(const char *filename) 
+  bool loadWAV(const char *filename) 
   { 
     stop();
     return buffer.loadWAV(filename); 
   }
-  void Sound::release() 
+  void release() 
   { 
     stop(); 
     buffer.release(); 
   }
-  bool Sound::isLoaded() const { return buffer.isLoaded(); }
+  bool isLoaded() const { return buffer.isLoaded(); }
 
   float getVolume() const { return volume; }
   void setVolume(float v) { volume = v; }
@@ -92,12 +92,17 @@ public:
     }
   }
 
-  Group* Sound::getGroup() const { return group; }
-  void Sound::setGroup(Group &group) { this->group = &group; }
-  Listener* Sound::getListener() const { return listener; }
-  void Sound::setListener(Listener &listener) { this->listener = &listener; }
+  Group* getGroup() const { return group; }
+  void setGroup(Group &group) { this->group = &group; }
+  Listener* getListener() const { return listener; }
+  void setListener(Listener &listener) { this->listener = &listener; }
 
-  void Sound::play(int loops, bool paused = false, float fade_secs = 0.0f) 
+  void play(int loops, bool paused = false) 
+  {
+    fadein(loops, 0.0f, paused);
+  }
+
+  void fadein(int loops, float fade_secs, bool paused = false) 
   {
     if (buffer.isLoaded()) {
       stop();
@@ -105,8 +110,12 @@ public:
     }
   }
 
-  void Sound::playAt(int loops, double sec, bool paused = false, 
-                     float fade_secs = 0.0f) 
+  void playAt(int loops, double sec, bool paused = false)
+  {
+    fadeinAt(loops, sec, 0.0f, paused);
+  }
+
+  void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
   {
     if (buffer.isLoaded()) {
       stop();
@@ -119,29 +128,32 @@ public:
     }
   }
 
-  void Sound::stop(float fade_secs = 0.0f)
+  void stop()
+  {
+    fadeout(0.0f);
+    mix_idx = -1;
+  }
+
+  void fadeout(float fade_secs)
   {
     if (mix_idx != -1) {
       AudioSystem::removeSound(mix_idx, fade_secs);
-      if (fade_secs <= 0.0f) {
-        mix_idx = -1;
-      }
     }
   }
 
-  bool Sound::isPlaying() const
+  bool isPlaying() const
   {
     return mix_idx != -1 && AudioSystem::isSoundFinished(mix_idx) == false;
   }
 
-  void Sound::setPaused(bool paused)
+  void setPaused(bool paused)
   {
     if (mix_idx != -1) {
       AudioSystem::pauseSound(mix_idx, paused);
     }
   }
 
-  bool Sound::isPaused() const
+  bool isPaused() const
   {
     return mix_idx != -1 && AudioSystem::isSoundPaused(mix_idx);
   }

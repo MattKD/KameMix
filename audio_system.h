@@ -6,12 +6,14 @@
 
 namespace KameMix {
 
+class Sound;
+class Stream;
+
 typedef void* (*MallocFunc)(size_t len);
 typedef void (*FreeFunc)(void *ptr);
 typedef void* (*ReallocFunc)(void *ptr, size_t len);
-
-class Sound;
-class Stream;
+typedef void (*SoundFinishedFunc) (Sound *sound);
+typedef void (*StreamFinishedFunc) (Stream *stream);
 
 class Group {
 public:
@@ -82,16 +84,40 @@ public:
   // Uses same format specifiers as sprintf
   static void setError(const char *error, ...);
 
+  static void setSoundFinished(SoundFinishedFunc func)
+  {
+    sound_finished = func;
+  }
+
+  static void setStreamFinished(StreamFinishedFunc func)
+  {
+    stream_finished = func;
+  }
+
 private:
   static void addSound(Sound *sound, int loops, int pos, bool paused,
                        float fade);
   static void addStream(Stream *stream, int loops, int pos, bool paused,
                         float fade);
-  static void removeSound(int idx, float fade_secs); // Sound and Stream
+  static void removeSound(int idx, float fade_secs);
   static bool isSoundFinished(int idx);
   static void pauseSound(int idx, bool paused); // does nothing if finished.
   static bool isSoundPaused(int idx); // returns false if playing or finished.
   static void audioCallback(void *udata, uint8_t *stream, const int len);
+
+  static void soundFinished(Sound *sound)
+  {
+    if (sound_finished) {
+      sound_finished(sound);
+    }
+  }
+
+  static void streamFinished(Stream *stream)
+  {
+    if (stream_finished) {
+      stream_finished(stream);
+    }
+  }
 
   static int channels;
   static int frequency;
@@ -102,6 +128,8 @@ private:
   static MallocFunc user_malloc;
   static FreeFunc user_free;
   static ReallocFunc user_realloc;
+  static SoundFinishedFunc sound_finished;
+  static StreamFinishedFunc stream_finished;
 
   friend class Sound;
   friend class Stream;

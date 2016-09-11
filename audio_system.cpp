@@ -146,6 +146,8 @@ char AudioSystem::error_string[error_len] = "\0";
 MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
+SoundFinishedFunc AudioSystem::sound_finished;
+StreamFinishedFunc AudioSystem::stream_finished;
 
 int AudioSystem::numberPlaying() 
 { 
@@ -403,6 +405,15 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
       }
 
       guard.unlock();
+
+      if (sound.state == FinishedState) {
+        if (sound.tag == SoundType) {
+          soundFinished(sound.sound);
+        } else {
+          streamFinished(sound.stream);
+        }
+      }
+
       const int num_samples = total_copied / sizeof(float);
       applyPosition(rel_x, rel_y, left_vol, right_vol);
       applyVolumeFloat(audio_tmp_buf, num_samples, left_vol, right_vol);

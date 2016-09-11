@@ -148,6 +148,8 @@ FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
 SoundFinishedFunc AudioSystem::sound_finished;
 StreamFinishedFunc AudioSystem::stream_finished;
+void* AudioSystem::sound_finished_data;
+void* AudioSystem::stream_finished_data;
 
 int AudioSystem::numberPlaying() 
 { 

@@ -12,8 +12,8 @@ class Stream;
 typedef void* (*MallocFunc)(size_t len);
 typedef void (*FreeFunc)(void *ptr);
 typedef void* (*ReallocFunc)(void *ptr, size_t len);
-typedef void (*SoundFinishedFunc) (Sound *sound);
-typedef void (*StreamFinishedFunc) (Stream *stream);
+typedef void (*SoundFinishedFunc) (Sound *sound, void *udata);
+typedef void (*StreamFinishedFunc) (Stream *stream, void *udata);
 
 class Group {
 public:
@@ -84,14 +84,16 @@ public:
   // Uses same format specifiers as sprintf
   static void setError(const char *error, ...);
 
-  static void setSoundFinished(SoundFinishedFunc func)
+  static void setSoundFinished(SoundFinishedFunc func, void *udata)
   {
     sound_finished = func;
+    sound_finished_data = udata;
   }
 
-  static void setStreamFinished(StreamFinishedFunc func)
+  static void setStreamFinished(StreamFinishedFunc func, void *udata)
   {
     stream_finished = func;
+    stream_finished_data = udata;
   }
 
 private:
@@ -108,14 +110,14 @@ private:
   static void soundFinished(Sound *sound)
   {
     if (sound_finished) {
-      sound_finished(sound);
+      sound_finished(sound, sound_finished_data);
     }
   }
 
   static void streamFinished(Stream *stream)
   {
     if (stream_finished) {
-      stream_finished(stream);
+      stream_finished(stream, stream_finished_data);
     }
   }
 
@@ -130,6 +132,8 @@ private:
   static ReallocFunc user_realloc;
   static SoundFinishedFunc sound_finished;
   static StreamFinishedFunc stream_finished;
+  static void *sound_finished_data;
+  static void *stream_finished_data;
 
   friend class Sound;
   friend class Stream;

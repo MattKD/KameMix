@@ -6,7 +6,9 @@
 #include <cstring>
 #include <cassert>
 #include <cstdint>
+#include <cmath>
 #include <vector>
+#include <thread>
 
 #define PI_F 3.141592653589793f
 
@@ -312,7 +314,7 @@ void AudioSystem::update()
 
       // swap sound to remove with last sound in list
       int idx = sound - sounds->begin();
-      if (idx != sounds->size() - 1) { // not removing last sound
+      if (idx != (int)sounds->size() - 1) { // not removing last sound
         *sound = sounds->back();
         if (sound->tag == SoundType) {
           sound->sound->mix_idx = idx;

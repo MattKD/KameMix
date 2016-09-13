@@ -3,6 +3,7 @@
 
 #include "audio_system.h"
 #include "stream_buffer.h"
+#include <thread>
 
 namespace KameMix {
 

@@ -56,6 +56,9 @@ void StreamBuffer::releaseFile()
     ov_clear(&sdata->vf);
     sdata->type = InvalidType;
     break;
+  case InvalidType:
+    // do nothing
+    break;
   }
 }
 
@@ -234,9 +237,11 @@ bool StreamBuffer::readMore()
       sdata->error = true;
       return false;
     }
+  case InvalidType:
+    assert("StreamBuffer tag was invalid");
+    break;
   }
 
-  assert("StreamBuffer tag was invalid");
   return false;
 }
 
@@ -281,9 +286,11 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     } else {
       return false;
     }
+  case InvalidType:
+    assert("setPos called with an invalid file type");
+    break;
   }
 
-  assert("setPos called with an invalid file type");
   return false;
 }
 

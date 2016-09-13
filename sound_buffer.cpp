@@ -8,6 +8,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <memory>
+#include <limits>
+
+static const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
 
 namespace KameMix {
 
@@ -78,8 +81,7 @@ bool SoundBuffer::loadWAV(const char *filename)
 
   int audio_buf_len;
   if (!cvt.needed) {
-    // max size of buffer is INT_MAX
-    if (wav_buf_len > INT_MAX) {
+    if (wav_buf_len > MAX_BUFF_SIZE) {
       AudioSystem::setError("Audio file is too large\n");
       return false;
     }
@@ -92,7 +94,7 @@ bool SoundBuffer::loadWAV(const char *filename)
     audio_buf_len = wav_buf_len;
     memcpy(dst_buf + HEADER_SIZE, wav_buf, wav_buf_len);
   } else {
-    if ((int64_t)cvt.len_mult * (int64_t)wav_buf_len > INT_MAX) {
+    if ((int64_t)cvt.len_mult * (int64_t)wav_buf_len > MAX_BUFF_SIZE) {
       AudioSystem::setError("Audio file is too large\n");
       return false;
     }
@@ -151,7 +153,7 @@ bool SoundBuffer::loadOGG(const char *filename)
   // calc size of audio_buf including needed conversion
   {
     int64_t tmp_len = calcBufSizeOGG(vf, channels); 
-    if (tmp_len > INT_MAX) {
+    if (tmp_len > MAX_BUFF_SIZE) {
       AudioSystem::setError("Audio file is too large\n");
       return false;
     }

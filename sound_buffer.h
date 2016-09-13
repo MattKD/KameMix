@@ -14,12 +14,12 @@ public:
 
   SoundBuffer(const char *filename) : sdata{nullptr} { load(filename); }
 
-  SoundBuffer::SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
+  SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
   {
     incRefCount();
   }
 
-  SoundBuffer::SoundBuffer(SoundBuffer &&other) : sdata{other.sdata}
+  SoundBuffer(SoundBuffer &&other) : sdata{other.sdata}
   {
     other.sdata = nullptr;
   }
@@ -87,7 +87,7 @@ public:
 private:
   struct alignas(std::max_align_t) SharedData {
     SharedData(uint8_t *buf, int buf_len, int channels) 
-      : refcount{1}, buffer{buf}, buffer_size{buf_len}, channels{channels} 
+      : buffer{buf}, refcount{1}, buffer_size{buf_len}, channels{channels} 
     { }
     uint8_t *buffer;
     std::atomic<int> refcount;

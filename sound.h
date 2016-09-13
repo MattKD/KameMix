@@ -9,18 +9,18 @@ namespace KameMix {
 class Sound {
 public:
   Sound() : 
-    group{nullptr}, mix_idx{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
+    group{nullptr}, listener{nullptr}, mix_idx{-1}, volume{1.0f}, 
+    x{0}, y{0}, max_distance{1.0f} { }
 
   explicit
   Sound(const char *filename) : 
-    group{nullptr}, buffer(filename), mix_idx{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
+    buffer(filename), group{nullptr}, listener{nullptr}, mix_idx{-1}, 
+    volume{1.0f}, x{0}, y{0}, max_distance{1.0f} { }
 
   Sound(const Sound &other) : 
-    buffer(other.buffer), group{other.group}, mix_idx{-1}, volume{other.volume}, 
-    x{other.x}, y{other.y}, max_distance{other.max_distance}, 
-    listener{other.listener} { }
+    buffer(other.buffer), group{other.group}, listener{other.listener}, 
+    mix_idx{-1}, volume{other.volume}, x{other.x}, y{other.y}, 
+    max_distance{other.max_distance} { }
 
   Sound& operator=(const Sound &other)
   {
@@ -161,11 +161,11 @@ public:
 private:
   SoundBuffer buffer;
   Group *group;
+  Listener *listener;
   int mix_idx;
   float volume;
   float x, y;
   float max_distance;
-  Listener *listener;
   friend class AudioSystem;
 };
 

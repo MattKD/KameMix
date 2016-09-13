@@ -45,7 +45,7 @@ public:
     load(filename, sec); 
   }
 
-  StreamBuffer::StreamBuffer(const StreamBuffer &other) : sdata{other.sdata}
+  StreamBuffer(const StreamBuffer &other) : sdata{other.sdata}
   {
     incRefCount();
   }
@@ -60,7 +60,7 @@ public:
     return *this;
   }
 
-  StreamBuffer::StreamBuffer(StreamBuffer &&other) : sdata{other.sdata}
+  StreamBuffer(StreamBuffer &&other) : sdata{other.sdata}
   {
     other.sdata = nullptr;
   }

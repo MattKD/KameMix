@@ -2,6 +2,7 @@
 #define KAME_MIX_STREAM_BUFFER_H
 
 #include "audio_system.h"
+#include "declspec.h"
 #include <cstdint>
 #include <cstddef>
 #include <mutex>
@@ -35,7 +36,7 @@ advance/updatePos/swapBuffers:
 readMore/setPos: time2, buffer2, buffer_size2, end_pos2, pos_set, error
 */
 
-class StreamBuffer {
+class DECLSPEC StreamBuffer {
 public:
   StreamBuffer() : sdata{nullptr} {  }
 

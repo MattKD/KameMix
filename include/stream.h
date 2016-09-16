@@ -3,11 +3,12 @@
 
 #include "audio_system.h"
 #include "stream_buffer.h"
+#include "declspec.h"
 #include <thread>
 
 namespace KameMix {
 
-class Stream {
+class DECLSPEC Stream {
 public:
   Stream() : 
     group{nullptr}, mix_idx{-1}, volume{1.0f}, 

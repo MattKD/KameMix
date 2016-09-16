@@ -3,10 +3,11 @@
 
 #include "audio_system.h"
 #include "sound_buffer.h"
+#include "declspec.h"
 
 namespace KameMix {
 
-class Sound {
+class DECLSPEC Sound {
 public:
   Sound() : 
     group{nullptr}, listener{nullptr}, mix_idx{-1}, volume{1.0f}, 

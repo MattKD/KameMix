@@ -1,6 +1,7 @@
 #ifndef AUDIO_SYSTEM_H
 #define AUDIO_SYSTEM_H
 
+#include "declspec.h"
 #include <cstdint>
 #include <cassert>
 #include <cstddef>
@@ -43,7 +44,7 @@ enum AudioFormat {
   FloatFormat
 };
 
-class AudioSystem {
+class DECLSPEC AudioSystem {
 public:
   // Initializes AudioSystem. Must be called before all other KameMix 
   // functions. Only call once in application, even if shutdown is called. 

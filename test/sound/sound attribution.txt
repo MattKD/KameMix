@@ -1,0 +1,24 @@
+Filename: "dark fallout.ogg" 
+Author: remaxim
+License: CC-BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+link: http://opengameart.org/content/dark-fallout
+
+Filename: "a new beginning.ogg" 
+Author: remaxim
+License: CC-BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+link: http://opengameart.org/content/new-beginning
+
+Filename: "spell1_0.wav" 
+Author: Bart Kelsey
+License: CC-BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+link: http://opengameart.org/content/spell-1
+
+Filename: "spelle.wav" 
+Author: Bart Kelsey
+License: CC-BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+link: http://opengameart.org/content/spell-3
+
+Filename: "Mudchute_cow_1.ogg, Mudchute_duck_2.ogg" 
+Author: Secretlondon
+License: CC-BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/
+link: http://opengameart.org/content/farm-animals

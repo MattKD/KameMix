@@ -1,7 +1,7 @@
 #ifndef KAME_MIX_VORBIS_HELPER_H
 #define KAME_MIX_VORBIS_HELPER_H
 
-#include <vorbisfile.h>
+#include <vorbis/vorbisfile.h>
 
 namespace KameMix {
 

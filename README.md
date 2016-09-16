@@ -1,6 +1,8 @@
 # KameMix
 Simple audio mixer for SDL2
 
+---
+
 Windows Visual Studio 2015 Build:
 
 1) Clone repo: git clone https://github.com/MattKD/KameMix.git
@@ -29,9 +31,13 @@ Windows Visual Studio 2015 Build:
 
 5) Solution should now compile for Debug and Release: Build/Build Solution (F7)
 
+---
+
 Linux/Mac Build:
 
 TODO
+
+---
 
 Documentation:
 

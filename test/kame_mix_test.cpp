@@ -37,31 +37,37 @@ int main(int argc, char *argv[])
   Sound spell1("sound/spell1_0.wav");
   if (!spell1.isLoaded()) {
     cout << "Couldn't load 'spell1_0.wav'\n";
+    return EXIT_FAILURE;
   }
 
   Sound spell3("sound/spell3.wav");
   if (!spell3.isLoaded()) {
     cout << "Couldn't load 'spell3.wav'\n";
+    return EXIT_FAILURE;
   }
 
   Sound cow("sound/Mudchute_cow_1.ogg");
   if (!cow.isLoaded()) {
     cout << "Couldn't load 'Mudchute_cow_1.ogg'\n";
+    return EXIT_FAILURE;
   }
 
   Stream duck("sound/Mudchute_duck_2.ogg");
   if (!duck.isLoaded()) {
     cout << "Couldn't load 'Mudchute_duck_2.ogg'\n";
+    return EXIT_FAILURE;
   }
 
   Sound music1("sound/dark fallout.ogg");
   if (!music1.isLoaded()) {
     cout << "Couldn't load 'a new beginning.ogg'\n";
+    return EXIT_FAILURE;
   }
 
   Stream music2("sound/a new beginning.ogg");
   if (!music2.isLoaded()) {
     cout << "Couldn't load 'dark fallout.ogg'\n";
+    return EXIT_FAILURE;
   }
 
   spell1.play(5);
@@ -72,8 +78,6 @@ int main(int argc, char *argv[])
   cout << "play cow 5 times\n";
   duck.play(5);
   cout << "play duck 5 times\n";
-
-  //AudioSystem::setMasterVolume(.5f);
 
   double time_ms = 0.0;
   int count = 0;

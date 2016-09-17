@@ -31,6 +31,8 @@ Windows Visual Studio 2015 Build:
 
 5) Solution should now compile for Debug and Release: Build/Build Solution (F7)
 
+6) To run KameMixTest: Run through Visual Studio (Ctrl-F5), or make sure all dll's (KameMix.dll, SDL2.dll, libogg.dll, libvorbis.dll, libvorbisfile.dll) are in same directory as KameMixTest.exe. The sound directory must be locatable as well; either copy it from test/sound to your_dir/sound, or edit sound_path.txt to point to it.
+
 ---
 
 Linux/Mac Build:

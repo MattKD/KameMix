@@ -4,12 +4,9 @@
 #include <thread>
 #include <chrono>
 #include <iostream>
-#include <fstream>
-#include <string>
 
 using namespace KameMix;
 using std::cout;
-using std::string;
 
 void onSoundFinished(Sound *sound, void *udata)
 {
@@ -19,18 +16,6 @@ void onSoundFinished(Sound *sound, void *udata)
 void onStreamFinished(Stream *stream, void *udata)
 {
   cout << "stream finished\n";
-}
-
-string soundPath()
-{
-  std::ifstream fin("sound_path.txt");
-  string path;
-  if (fin.is_open()) {
-    std::getline(fin, path);
-  } else {
-    path = "sound/";
-  }
-  return path;
 }
 
 int main(int argc, char *argv[])
@@ -48,47 +33,45 @@ int main(int argc, char *argv[])
   //Group effect_group(0.25f);
   //Listener listener(0, 0);
 
-  string sound_path = soundPath();
-
-  string spell1_path = sound_path + "spell1_0.wav";
-  Sound spell1(spell1_path.c_str());
+  const char *file_path = "sound/spell1_0.wav";
+  Sound spell1(file_path);
   if (!spell1.isLoaded()) {
-    cout << "Couldn't load " << spell1_path << "n";
+    cout << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  string spell3_path = sound_path + "spell3.wav";
-  Sound spell3(spell3_path.c_str());
+  file_path = "sound/spell3.wav";
+  Sound spell3(file_path);
   if (!spell3.isLoaded()) {
-    cout << "Couldn't load " << spell3_path << "n";
+    cout << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  string cow_path = sound_path + "Mudchute_cow_1.ogg";
-  Sound cow(cow_path.c_str());
+  file_path = "sound/Mudchute_cow_1.ogg";
+  Sound cow(file_path);
   if (!cow.isLoaded()) {
-    cout << "Couldn't load " << cow_path << "n";
+    cout << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  string duck_path = sound_path + "Mudchute_duck_2.ogg";
-  Stream duck(duck_path.c_str());
+  file_path = "sound/Mudchute_duck_2.ogg";
+  Stream duck(file_path);
   if (!duck.isLoaded()) {
-    cout << "Couldn't load " << duck_path << "n";
+    cout << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  string music1_path = sound_path + "dark fallout.ogg";
-  Sound music1(music1_path.c_str());
+  file_path = "sound/dark fallout.ogg";
+  Sound music1(file_path);
   if (!music1.isLoaded()) {
-    cout << "Couldn't load " << music1_path << "n";
+    cout << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  string music2_path = sound_path + "a new beginning.ogg";
-  Stream music2(music2_path.c_str());
+  file_path = "sound/a new beginning.ogg";
+  Stream music2(file_path);
   if (!music2.isLoaded()) {
-    cout << "Couldn't load " << music2_path << "n";
+    cout << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 

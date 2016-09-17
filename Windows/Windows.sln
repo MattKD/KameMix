@@ -6,6 +6,9 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KameMix", "KameMix\KameMix.vcxproj", "{0AACC76F-CE32-47BC-8B3B-ECB7784247E2}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "KameMixTest", "KameMixTest\KameMixTest.vcxproj", "{EB7EC110-0E5E-4D2A-B701-932A82920E03}"
+	ProjectSection(ProjectDependencies) = postProject
+		{0AACC76F-CE32-47BC-8B3B-ECB7784247E2} = {0AACC76F-CE32-47BC-8B3B-ECB7784247E2}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

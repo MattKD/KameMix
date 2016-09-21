@@ -31,19 +31,24 @@ Windows Visual Studio 2015 Build:
 
 Linux Build:
 
-1) Run make to build KameMix/Linux/KameMix/libKameMix.so and KameMix/Linux/KameMixTest/KameMixTest:
+1) Make sure libsdl2-dev and libvorbis-dev are installed. On Ubuntu:
+```
+sudo apt install libsdl2-dev libvorbis-dev
+```
+
+2) Run make to build KameMix/Linux/KameMix/libKameMix.so and KameMix/Linux/KameMixTest/KameMixTest:
 ```
 cd KameMix/Linux
 make
 ```
-2) To run KameMixTest:
+3) To run KameMixTest:
 ```
 cd KameMixTest
 ./KameMixTest
 ```
 This assumes sound/ and libKameMix.so are in same directory as KameMixTest, which is true if run from Linux/KameMixTest/ as symlinks to both are created from make.
 
-3) To delete all build files including libKameMix.so and KameMixTest (copy/move them first to save):
+4) To delete all build files including libKameMix.so and KameMixTest (copy/move them first to save):
 ```
 cd KameMix/Linux
 make clean

@@ -35,6 +35,6 @@ $(ODIR)/%.o: | $(ODIR)
 		
 .PHONY: clean
 clean:
-	rm -r $(DEPDIR)
-	rm -r $(ODIR)
+	rm -rf $(DEPDIR)
+	rm -rf $(ODIR)
 	rm -f libKameMix.so

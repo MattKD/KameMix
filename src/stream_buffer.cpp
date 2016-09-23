@@ -84,7 +84,7 @@ bool StreamBuffer::load(const char *filename, double sec)
 
   while (*iter != '\0') {
     if (*iter == '.') {
-      dot_idx = iter - filename;
+      dot_idx = (int)(iter - filename);
     }
     ++iter;
     ++size;
@@ -505,7 +505,8 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
     if (buf_samples_left / cvt.len_mult < MIN_READ_SAMPLES ||
         convert_needed) {
       if (cvt.needed) {
-        cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
+        // len of data to be converted
+        cvt.len = (int)((uint8_t*)dst - cvt.buf); 
         if (SDL_ConvertAudio(&cvt) < 0) {
           AudioSystem::setError("SDL_ConvertAudio failed\n");
           return 0;
@@ -525,12 +526,13 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
         cvt.buf = (uint8_t*)dst;
       }
 
-      buf_samples_left = (buf_len - (cvt.buf - buffer)) / bytes_per_block;
+      buf_samples_left = (buf_len - (int)(cvt.buf - buffer)) 
+        / bytes_per_block;
     }
 
     // end_pos is at dst, and must be set after possible convert
     if (end_pos_found) {
-      end_pos = (uint8_t*)dst - buffer;
+      end_pos = (int)((uint8_t*)dst - buffer);
     }
     // stop when buffer almost filled after trying to convert
     if (buf_samples_left / cvt.len_mult < MIN_READ_SAMPLES) {
@@ -539,7 +541,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   }
 
   // size of decoded data may be smaller than buf_len
-  return (uint8_t*)dst - buffer; 
+  return (int)((uint8_t*)dst - buffer);
 }
 
 

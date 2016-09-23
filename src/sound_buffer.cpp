@@ -22,7 +22,7 @@ bool SoundBuffer::load(const char *filename)
 
   while (*iter != '\0') {
     if (*iter == '.') {
-      dot_idx = iter - filename;
+      dot_idx = (int)(iter - filename);
     }
     ++iter;
     ++size;
@@ -239,7 +239,8 @@ bool SoundBuffer::loadOGG(const char *filename)
             return false;
           }
           cvt.buf = cvt_buf;
-          cvt.len = (uint8_t*)dst - cvt.buf; // len of data to be converted
+          // len of data to be converted
+          cvt.len = (int)((uint8_t*)dst - cvt.buf); 
           if (cvt.needed) {
             if (SDL_ConvertAudio(&cvt) < 0) {
               AudioSystem::setError("SDL_ConvertAudio failed\n");
@@ -263,7 +264,7 @@ bool SoundBuffer::loadOGG(const char *filename)
 
   uint8_t *audio_buf = dst_buf + HEADER_SIZE;
   // shrink buffer at least 1KB unused memory
-  const int audio_buf_used = (uint8_t*)dst - audio_buf;
+  const int audio_buf_used = (int)((uint8_t*)dst - audio_buf);
   if (audio_buf_len - audio_buf_used > 1024) { 
     uint8_t *tmp = 
       (uint8_t*)km_realloc_(dst_buf, audio_buf_used + HEADER_SIZE);

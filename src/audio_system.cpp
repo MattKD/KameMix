@@ -156,7 +156,7 @@ void* AudioSystem::stream_finished_data;
 int AudioSystem::numberPlaying() 
 { 
   std::lock_guard<std::mutex> guard(audio_mutex);
-  return sounds->size(); 
+  return (int)sounds->size(); 
 }
 
 void AudioSystem::setError(const char *err, ...)
@@ -246,7 +246,7 @@ void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   sounds->push_back(PlayingSound(sound, loops, pos, paused, fade));
-  sound->mix_idx = sounds->size() - 1;
+  sound->mix_idx = (int)sounds->size() - 1;
 }
 
 void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
@@ -254,7 +254,7 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   sounds->push_back(PlayingSound(stream, loops, pos, paused, fade));
-  stream->mix_idx = sounds->size() - 1;
+  stream->mix_idx = (int)sounds->size() - 1;
 }
 
 void AudioSystem::removeSound(int idx, float fade_secs)
@@ -313,7 +313,7 @@ void AudioSystem::update()
       }
 
       // swap sound to remove with last sound in list
-      int idx = sound - sounds->begin();
+      int idx = (int)(sound - sounds->begin());
       if (idx != (int)sounds->size() - 1) { // not removing last sound
         *sound = sounds->back();
         if (sound->tag == SoundType) {

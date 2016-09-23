@@ -1,5 +1,5 @@
-#ifndef AUDIO_SYSTEM_H
-#define AUDIO_SYSTEM_H
+#ifndef KAME_MIX_AUDIO_SYSTEM_H
+#define KAME_MIX_AUDIO_SYSTEM_H
 
 #include "declspec.h"
 #include <cstdint>

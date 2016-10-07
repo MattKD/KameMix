@@ -484,8 +484,8 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   const int dst_freq = AudioSystem::getFrequency();
   // Only float output supported for now
   const SDL_AudioFormat src_format = AUDIO_F32SYS;
-  const SDL_AudioFormat dst_format = AUDIO_F32SYS;
-  const int bytes_per_block = sizeof(float) * channels;
+  const SDL_AudioFormat dst_format = getOutputFormat();
+  const int bytes_per_block = AudioSystem::getFormatSize() * channels;
 
   int stream_idx; 
   int64_t offset;
@@ -519,7 +519,8 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
     int samples_read;
     {
       int tmp_idx;
-      samples_read = ov_read_float(&vf, &channel_buf, samples_want, &tmp_idx);
+      samples_read = ov_read_float(&vf, &channel_buf, samples_want, 
+        &tmp_idx);
       assert (stream_idx == tmp_idx &&
               "stream idx is detected before ov_read_float");
     }
@@ -596,7 +597,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
           AudioSystem::setError("SDL_ConvertAudio failed\n");
           return 0;
         }
-        cvt.buf += (cvt.len_cvt / sizeof(float)) * sizeof(float);
+        cvt.buf += (cvt.len_cvt / bytes_per_block) * bytes_per_block;
         dst = (float*)cvt.buf;
       } else {
         cvt.buf = (uint8_t*)dst;
@@ -639,9 +640,8 @@ int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len,
   const SDL_AudioFormat dst_format = getOutputFormat();
   const int bytes_per_block = AudioSystem::getFormatSize() * channels;
 
-  int src_freq = wf.rate;
   SDL_AudioCVT cvt;
-  if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, src_freq, 
+  if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, wf.rate, 
                         dst_format, channels, dst_freq) < 0) {
     AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return 0;

@@ -232,10 +232,10 @@ bool SoundBuffer::loadOGG(const char *filename)
         // physical straem so convert all data not converted yet if necessary 
         if (src_freq != last_src_freq || stream_idx == 0) {
           const int dst_freq = AudioSystem::getFrequency();
-          const SDL_AudioFormat format = getOutputFormat();
+          const SDL_AudioFormat dst_format = getOutputFormat();
           SDL_AudioCVT cvt;
-          if (SDL_BuildAudioCVT(&cvt, format, channels, last_src_freq, 
-                                format, channels, dst_freq) < 0) {
+          if (SDL_BuildAudioCVT(&cvt, AUDIO_F32SYS, channels, last_src_freq, 
+                                dst_format, channels, dst_freq) < 0) {
             AudioSystem::setError("SDL_BuildAudioCVT failed\n");
             return false;
           }

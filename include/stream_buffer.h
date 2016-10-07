@@ -84,6 +84,9 @@ public:
   // Load OGG file starting as position 'sec' in seconds. 
   // Returns true on success.
   bool loadOGG(const char *filename, double sec = 0.0);
+  // Load WAV file starting as position 'sec' in seconds. 
+  // Returns true on success.
+  bool loadWAV(const char *filename, double sec = 0.0);
   bool isLoaded() const { return sdata != nullptr; }
   // Release loaded file and free allocated data. isLoaded() is false after.
   void release();
@@ -266,7 +269,6 @@ private:
   }
 
   bool allocData();
-  void releaseFile();
   void swapBuffersImpl();
   void calcTime(); // sets time2, needs file_read_mutex locked before
 

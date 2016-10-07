@@ -31,9 +31,7 @@ public:
   { 
     stop();
     if (buffer.load(filename, sec)) {
-      StreamBuffer &buf = buffer;
-      std::thread thrd([buf]() mutable { buf.readMore(); }); 
-      thrd.detach();
+      readMore();
       return true;
     }
     return false;
@@ -43,9 +41,17 @@ public:
   { 
     stop();
     if (buffer.loadOGG(filename, sec)) {
-      StreamBuffer &buf = buffer;
-      std::thread thrd([buf]() mutable { buf.readMore(); }); 
-      thrd.detach();
+      readMore();
+      return true;
+    }
+    return false;
+  }
+
+  bool loadWAV(const char *filename, double sec = 0.0) 
+  { 
+    stop();
+    if (buffer.loadWAV(filename, sec)) {
+      readMore();
       return true;
     }
     return false;
@@ -186,6 +192,13 @@ public:
   }
 
 private:
+  void readMore()
+  {
+    StreamBuffer &buf = buffer;
+    std::thread thrd([buf]() mutable { buf.readMore(); }); 
+    thrd.detach();
+  }
+
   StreamBuffer buffer;
   Group *group;
   int mix_idx;

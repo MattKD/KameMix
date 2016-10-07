@@ -126,7 +126,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_USRDLL;KAMEMIX_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <SDLCheck>true</SDLCheck>
+      <SDLCheck>false</SDLCheck>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -161,14 +161,17 @@
     <ClInclude Include="..\..\include\stream.h" />
     <ClInclude Include="..\..\include\stream_buffer.h" />
     <ClInclude Include="..\..\src\audio_mem.h" />
+    <ClInclude Include="..\..\src\scope_exit.h" />
     <ClInclude Include="..\..\src\sdl_helper.h" />
     <ClInclude Include="..\..\src\vorbis_helper.h" />
+    <ClInclude Include="..\..\src\wav_loader.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\src\audio_system.cpp" />
     <ClCompile Include="..\..\src\sound_buffer.cpp" />
     <ClCompile Include="..\..\src\stream_buffer.cpp" />
     <ClCompile Include="..\..\src\vorbis_helper.cpp" />
+    <ClCompile Include="..\..\src\wav_loader.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

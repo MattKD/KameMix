@@ -1,38 +1,69 @@
 #include "stream_buffer.h"
 #include "audio_mem.h"
 #include "vorbis_helper.h"
-#include <SDL_audio.h>
+#include "wav_loader.h"
+#include "scope_exit.h"
+#include "sdl_helper.h"
 #include <cassert>
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
-#include <memory>
 
-// 0.5 sec of stereo float samples at 44100 sample rate
-static const int STREAM_SIZE = 22050 * sizeof(float) * 2;
-static const int MIN_READ_SAMPLES = 64;
+#include <iostream>
 
-static
-int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels);
+using KameMix::WavFile;
 
 namespace KameMix {
 
 enum StreamType {
   VorbisType,
+  WavType,
   InvalidType
 };
 
 struct alignas(std::max_align_t) SharedData2 : StreamBuffer::SharedData {
   SharedData2() : type{InvalidType} { }
+  ~SharedData2()
+  {
+    switch (type) {
+    case VorbisType:
+      ov_clear(&vf);
+      type = InvalidType;
+      break;
+    case WavType:
+      wf.~WavFile();
+      type = InvalidType;
+      break;
+    case InvalidType:
+      // do nothing
+      break;
+    }
+  }
 
   StreamType type;
   union {
     OggVorbis_File vf;
+    WavFile wf;
   };
 };
 
-static const size_t HEADER_SIZE = sizeof(SharedData2);
+} // end namespace KameMix
+
+namespace {
+
+// 0.5 sec of stereo float samples at 44100 sample rate
+const int STREAM_SIZE = 22050 * sizeof(float) * 2;
+const int MIN_READ_SAMPLES = 64;
+const size_t HEADER_SIZE = sizeof(KameMix::SharedData2);
+int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
+                int &end_pos, int channels);
+
+int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len, 
+                int &end_pos, int channels);
+
+} // end anon namespace 
+
+namespace KameMix {
 
 bool StreamBuffer::allocData()
 {
@@ -42,35 +73,20 @@ bool StreamBuffer::allocData()
     return false;
   }
 
-  SharedData2 *sdata = new (this->sdata) SharedData2(); 
-  sdata->buffer = (uint8_t*)(sdata + 1);
-  sdata->buffer2 = sdata->buffer + STREAM_SIZE;
+  SharedData2 *sdata2 = new (this->sdata) SharedData2(); 
+  sdata2->buffer = (uint8_t*)(sdata2 + 1);
+  sdata2->buffer2 = sdata2->buffer + STREAM_SIZE;
   return true;
-}
-
-void StreamBuffer::releaseFile()
-{
-  SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
-  switch (sdata->type) {
-  case VorbisType:
-    ov_clear(&sdata->vf);
-    sdata->type = InvalidType;
-    break;
-  case InvalidType:
-    // do nothing
-    break;
-  }
 }
 
 void StreamBuffer::release()
 { 
   if (sdata) {
-    SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
     if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
       std::atomic_thread_fence(std::memory_order_acquire);
-      releaseFile();
-      sdata->~SharedData2();
-      km_free(this->sdata); 
+      SharedData2 *sdata2 = static_cast<SharedData2*>(this->sdata);
+      sdata2->~SharedData2();
+      km_free(sdata); 
     }
     sdata = nullptr;
   }
@@ -105,11 +121,67 @@ bool StreamBuffer::load(const char *filename, double sec)
   if (strcmp(prefix, "ogg") == 0) {
     return loadOGG(filename, sec);
   } else if (strcmp(prefix, "wav") == 0) {
-    //return loadWAV(filename);
+    return loadWAV(filename);
   }
 
   return false;
 }
+
+bool StreamBuffer::loadWAV(const char *filename, double sec)
+{
+  // Release and alloc new sdata. This will be sole owner
+  // of sdata so no lock is needed.
+  release();
+  if (!allocData()) { // failed to allocate
+    return false;
+  }
+
+  SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
+  // call release on error
+  auto err_cleanup = makeScopeExit([this]() { release(); });
+
+  WavFile &wf = sdata->wf;
+  new(&wf) WavFile;
+  WavResult wav_result = wf.open(filename);
+  if (wav_result != WAV_OK) {
+    AudioSystem::setError(wavErrResultToStr(wav_result));
+    return false;
+  }
+
+  sdata->type = WavType;
+  sdata->channels = wf.num_channels >= 2 ? 2 : 1;
+  sdata->total_time = wf.totalTime();
+  const int freq = AudioSystem::getFrequency();
+  int64_t total_size = wf.totalBlocks() * sampleBlockSize();
+  int buf_len = STREAM_SIZE;
+  // If the size of decoded file is less than one buffer then 
+  // read full file into first buffer without looping to start. 
+  if (total_size <= STREAM_SIZE) {
+    sdata->fully_buffered = true;
+    sec = 0.0;
+    buf_len = STREAM_SIZE * 2;
+  }
+
+  sdata->time = sec;
+  if (!wf.timeSeek(sec)) {
+    AudioSystem::setError("wavTimeSeek failed");
+    return false;
+  }
+
+  sdata->buffer_size = readMoreWAV(wf, sdata->buffer, buf_len, 
+    sdata->end_pos, sdata->channels);
+  if (sdata->buffer_size > 0) {
+    if (sdata->fully_buffered && sdata->end_pos == -1) {
+      assert("End of stream must be reached when fully buffered");
+      sdata->end_pos = sdata->buffer_size;
+    }
+    err_cleanup.cancel();
+    return true;
+  }
+
+  return false;
+}
+
 
 bool StreamBuffer::loadOGG(const char *filename, double sec)
 {
@@ -121,8 +193,7 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   }
   SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
   // call release on error
-  std::unique_ptr<StreamBuffer, void(*)(StreamBuffer*)>
-    err_cleanup(this, [](StreamBuffer *sb) { sb->release(); });
+  auto err_cleanup = makeScopeExit([this]() { release(); });
 
   if (ov_fopen(filename, &sdata->vf) != 0) {
     AudioSystem::setError("ov_fopen failed\n");
@@ -163,7 +234,7 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
       assert("End of stream must be reached when fully buffered");
       sdata->end_pos = sdata->buffer_size;
     }
-    err_cleanup.release();
+    err_cleanup.cancel();
     return true;
   }
 
@@ -230,18 +301,22 @@ bool StreamBuffer::readMore()
   case VorbisType:
     sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, STREAM_SIZE, 
       sdata->end_pos2, sdata->channels);
-    if (sdata->buffer_size2 > 0) {
-      calcTime();
-      return true;
-    } else {
-      sdata->error = true;
-      return false;
-    }
+    break;
+  case WavType:
+    sdata->buffer_size2 = readMoreWAV(sdata->wf, sdata->buffer2, 
+      STREAM_SIZE, sdata->end_pos2, sdata->channels);
+    break;
   case InvalidType:
     assert("StreamBuffer tag was invalid");
     break;
   }
 
+  if (sdata->buffer_size2 > 0) {
+    calcTime();
+    return true;
+  }
+
+  sdata->error = true;
   return false;
 }
 
@@ -252,7 +327,6 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     return true;
   }
 
-  SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
   std::lock_guard<std::mutex> guard(sdata->mutex2);
 
   // unset previous buffer2 data
@@ -266,29 +340,39 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     sec = 0.0;
   }
 
-  switch (sdata->type) {
+  SharedData2 *sdata2 = static_cast<SharedData2*>(this->sdata);
+  switch (sdata2->type) {
   case VorbisType:
-    if (ov_time_seek(&sdata->vf, sec) != 0) {
+    if (ov_time_seek(&sdata2->vf, sec) != 0) {
       AudioSystem::setError("ov_time_seek failed");
       return false;
     }
 
-    sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, STREAM_SIZE, 
-      sdata->end_pos2, sdata->channels);
-    if (sdata->buffer_size2 > 0) {
-      sdata->time2 = sec;
-      sdata->pos_set = true;
-      if (swap_buffers) {
-        swapBuffersImpl();
-      }
-      sdata->error = false;
-      return true;
-    } else {
+    sdata->buffer_size2 = readMoreOGG(sdata2->vf, sdata->buffer2, 
+      STREAM_SIZE, sdata->end_pos2, sdata->channels);
+    break;
+  case WavType:
+    if (!sdata2->wf.timeSeek(sec)) {
+      AudioSystem::setError("wavTimeSeek failed");
       return false;
     }
+
+    sdata->buffer_size2 = readMoreWAV(sdata2->wf, sdata->buffer2, 
+      STREAM_SIZE, sdata->end_pos2, sdata->channels);
+    break;
   case InvalidType:
     assert("setPos called with an invalid file type");
     break;
+  }
+
+  if (sdata->buffer_size2 > 0) {
+    sdata->time2 = sec;
+    sdata->pos_set = true;
+    if (swap_buffers) {
+      swapBuffersImpl();
+    }
+    sdata->error = false;
+    return true;
   }
 
   return false;
@@ -390,7 +474,8 @@ void StreamBuffer::swapBuffersImpl()
 
 } // end namespace KameMix
 
-static
+namespace {
+
 int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
                 int &end_pos, int channels)
 {
@@ -544,4 +629,79 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   return (int)((uint8_t*)dst - buffer);
 }
 
+int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len, 
+                int &end_pos, int channels)
+{
+  using namespace KameMix;
+  end_pos = -1;
+  const int dst_freq = AudioSystem::getFrequency();
+  const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
+  const SDL_AudioFormat dst_format = getOutputFormat();
+  const int bytes_per_block = AudioSystem::getFormatSize() * channels;
 
+  int src_freq = wf.rate;
+  SDL_AudioCVT cvt;
+  if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, src_freq, 
+                        dst_format, channels, dst_freq) < 0) {
+    AudioSystem::setError("SDL_BuildAudioCVT failed\n");
+    return 0;
+  }
+
+  cvt.buf = buffer;
+  uint8_t *dst = buffer;
+  int buf_left = buf_len;
+  bool done = false;
+  const int MIN_READ_BYTES = MIN_READ_SAMPLES * bytes_per_block;
+  
+  // Is possible to be at eof from last read, so end_pos to start of buffer
+  if (wf.isEOF()) {
+    wf.blockSeek(0);
+    end_pos = 0;
+  }
+
+  while (!done) {
+    int bytes_want = buf_left / cvt.len_mult;
+    int bytes_read = (int)wf.read(cvt.buf, bytes_want);
+    if (bytes_read < 0) {
+      AudioSystem::setError("wavRead error\n");
+      return 0;
+    } 
+
+    dst += bytes_read;
+    if (cvt.needed) {
+      // len of data to be converted
+      cvt.len = (int)(dst - cvt.buf); 
+      if (SDL_ConvertAudio(&cvt) < 0) {
+        AudioSystem::setError("SDL_ConvertAudio failed\n");
+        return 0;
+      }
+      cvt.buf += (cvt.len_cvt / bytes_per_block) * bytes_per_block;
+      dst = cvt.buf;
+    } else {
+      cvt.buf = dst;
+    }
+
+    buf_left = (buf_len - (int)(cvt.buf - buffer));
+
+    // end_pos is at dst, and must be set after possible convert
+    if (wf.isEOF()) {
+      if (end_pos == -1) {
+        wf.blockSeek(0);
+        end_pos = (int)(dst - buffer);
+      } else {
+        // leave at eof for next read
+        done = true; 
+      }
+    }
+
+    // stop when buffer almost filled after trying to convert
+    if (buf_left / cvt.len_mult < MIN_READ_BYTES) {
+      done = true;
+    }
+  }
+
+  // size of decoded data may be smaller than buf_len
+  return (int)(dst - buffer);
+}
+
+} // end anon namespace

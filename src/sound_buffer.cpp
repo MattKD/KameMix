@@ -2,12 +2,12 @@
 #include "audio_mem.h"
 #include "vorbis_helper.h"
 #include "sdl_helper.h"
-#include <SDL_audio.h>
+#include "wav_loader.h"
+#include "scope_exit.h"
 #include <cassert>
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
-#include <memory>
 #include <limits>
 
 static const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
@@ -52,60 +52,63 @@ bool SoundBuffer::load(const char *filename)
 
 bool SoundBuffer::loadWAV(const char *filename)
 {
-  using std::unique_ptr;
   release();
-  uint8_t *wav_buf;
-  uint32_t wav_buf_len = 0;
-  SDL_AudioSpec wav_spec = { 0 };
 
-  if (!SDL_LoadWAV(filename, &wav_spec, &wav_buf, &wav_buf_len)) {
-    AudioSystem::setError("SDL_LoadWAV failed\n");
+  WavFile wf;
+  WavResult wav_result = wf.open(filename);
+  if (wav_result != WAV_OK) {
+    AudioSystem::setError(wavErrResultToStr(wav_result));
     return false;
   }
 
-  unique_ptr<uint8_t, void(*)(uint8_t*)> wav_buf_cleanup(wav_buf, SDL_FreeWAV);
-
+  const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
   const SDL_AudioFormat dst_format = getOutputFormat();
   const int dst_freq = AudioSystem::getFrequency();
-  const int channels = wav_spec.channels > 2 ? 2 : wav_spec.channels;
+  const int channels = wf.num_channels >= 2 ? 2 : 1;
   SDL_AudioCVT cvt;
-  if (SDL_BuildAudioCVT(&cvt, wav_spec.format, wav_spec.channels, 
-                        wav_spec.freq, dst_format, channels, dst_freq) < 0) {
+  if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, 
+                        wf.rate, dst_format, channels, dst_freq) < 0) {
     AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return false;
   }
 
   uint8_t *dst_buf = nullptr;
-  unique_ptr<uint8_t*, void (*)(uint8_t**)> 
-    dst_buf_cleanup(&dst_buf, [](uint8_t **buf) { km_free(*buf); });
+  auto dst_buf_cleanup = makeScopeExit([&dst_buf]() { km_free(dst_buf); });
 
-  int audio_buf_len;
+  int audio_buf_len = wf.stream_size;
   if (!cvt.needed) {
-    if (wav_buf_len > MAX_BUFF_SIZE) {
+    if (audio_buf_len > MAX_BUFF_SIZE) {
       AudioSystem::setError("Audio file is too large\n");
       return false;
     }
 
-    dst_buf = (uint8_t*)km_malloc_(wav_buf_len + HEADER_SIZE);
+    dst_buf = (uint8_t*)km_malloc_(audio_buf_len + HEADER_SIZE);
     if (!dst_buf) {
       AudioSystem::setError("Out of memory");
       return false;
     }
-    audio_buf_len = wav_buf_len;
-    memcpy(dst_buf + HEADER_SIZE, wav_buf, wav_buf_len);
+    audio_buf_len = (int)wf.read(dst_buf + HEADER_SIZE, audio_buf_len);
+    if (audio_buf_len < 0) {
+      AudioSystem::setError("WavFile::read error");
+      return false;
+    }
   } else {
-    if ((int64_t)cvt.len_mult * (int64_t)wav_buf_len > MAX_BUFF_SIZE) {
+    if ((int64_t)cvt.len_mult * (int64_t)audio_buf_len > MAX_BUFF_SIZE) {
       AudioSystem::setError("Audio file is too large\n");
       return false;
     }
-    cvt.len = wav_buf_len;
+    cvt.len = audio_buf_len;
     dst_buf = (uint8_t*)km_malloc_(cvt.len * cvt.len_mult + HEADER_SIZE);
     if (!dst_buf) {
       AudioSystem::setError("Out of memory");
       return false;
     }
     cvt.buf = dst_buf + HEADER_SIZE;
-    memcpy(cvt.buf, wav_buf, cvt.len);
+    audio_buf_len = (int)wf.read(dst_buf + HEADER_SIZE, audio_buf_len);
+    if (audio_buf_len < 0) {
+      AudioSystem::setError("WavFile::read error");
+      return false;
+    }
 
     if (SDL_ConvertAudio(&cvt) != 0) {
       AudioSystem::setError("SDL_ConvertAudio failed\n");
@@ -127,13 +130,12 @@ bool SoundBuffer::loadWAV(const char *filename)
 
   uint8_t *audio_buf = dst_buf + HEADER_SIZE;
   sdata = new (dst_buf) SharedData(audio_buf, audio_buf_len, channels);
-  dst_buf_cleanup.release(); // don't free dst_buf
+  dst_buf_cleanup.cancel(); // don't free dst_buf
   return true;
 }
 
 bool SoundBuffer::loadOGG(const char *filename)
 {
-  using std::unique_ptr;
   release();
   OggVorbis_File vf;
 
@@ -142,8 +144,7 @@ bool SoundBuffer::loadOGG(const char *filename)
     return false;
   }
 
-  unique_ptr<OggVorbis_File, int (*)(OggVorbis_File*)>  
-    vf_cleanup(&vf, ov_clear);
+  auto vf_cleanup = makeScopeExit([&vf]() { ov_clear(&vf); });
 
   ov_pcm_seek(&vf, 0);
   const int channels = isMonoOGG(vf) ? 1 : 2;
@@ -168,8 +169,8 @@ bool SoundBuffer::loadOGG(const char *filename)
     }
   }
 
-  unique_ptr<uint8_t*, void(*)(uint8_t**)> 
-    dst_buf_cleanup(&dst_buf, [](uint8_t **buf) { km_free(*buf); });
+  auto dst_buf_cleanup = makeScopeExit([&dst_buf]() { km_free(dst_buf); });
+
   uint8_t *cvt_buf = dst_buf + HEADER_SIZE;
   float *dst = (float*)cvt_buf;
   // pointer to array of channels, each channel is array of floats
@@ -276,7 +277,7 @@ bool SoundBuffer::loadOGG(const char *filename)
   }
 
   sdata = new(dst_buf) SharedData(audio_buf, audio_buf_len, channels);
-  dst_buf_cleanup.release(); // don't free dst_buf
+  dst_buf_cleanup.cancel(); // don't free dst_buf
 
   return true;
 }

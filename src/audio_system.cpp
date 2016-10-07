@@ -10,9 +10,10 @@
 #include <vector>
 #include <thread>
 
+using namespace KameMix;
 #define PI_F 3.141592653589793f
 
-namespace KameMix {
+namespace {
 
 enum PlayingType : uint8_t {
   SoundType,
@@ -104,39 +105,30 @@ struct PlayingSound {
   PlayingState state;
 };
 
-} // end namespace KameMix
-
-using namespace KameMix;
 
 typedef std::vector<PlayingSound, Alloc<PlayingSound>> SoundBuf;
 
-static 
 void applyVolumeFloat(float *stream, int len, float left_vol, float right_vol);
-static
 void mixStreamFloat(float *target, float *source, int len);
-static
 void applyPosition(float rel_x, float rel_y, float &left_vol, float &right_vol);
-static
 void clampFloat(float *buf, int len);
-static
 int copyMonoSound(uint8_t *buf, const int buf_len, 
                   PlayingSound &sound, SoundBuffer &sound_buf);
-static
 int copyMonoStream(uint8_t *buf, const int buf_len, 
                    PlayingSound &stream, StreamBuffer &stream_buf);
-static
 int copyStereoSound(uint8_t *buffer, const int buf_len, 
                     PlayingSound &sound, SoundBuffer &sound_buf);
-static
 int copyStereoStream(uint8_t *buffer, const int buf_len, 
                      PlayingSound &sound, StreamBuffer &stream_buf);
 
-static SoundBuf *sounds;
-static SDL_AudioDeviceID dev_id;
-static float *audio_tmp_buf;
-static int audio_tmp_buf_len;
-static std::mutex audio_mutex;
-static float secs_per_callback;
+SoundBuf *sounds;
+SDL_AudioDeviceID dev_id;
+float *audio_tmp_buf;
+int audio_tmp_buf_len;
+std::mutex audio_mutex;
+float secs_per_callback;
+
+} // end anon KameMix
 
 namespace KameMix {
 
@@ -432,11 +424,9 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
 
 } // end namespace KameMix
 
-// 
-// file static functions
-//
 
-static 
+namespace {
+
 void applyVolumeFloat(float *stream, int len, float left_vol, float right_vol)
 {
   float *iter = stream; // left channel start
@@ -454,7 +444,7 @@ void applyVolumeFloat(float *stream, int len, float left_vol, float right_vol)
   }
 }
 
-static inline
+inline
 void mixStreamFloat(float *target, float *source, int len) 
 {
   for (int i = 0; i < len; ++i) {
@@ -466,7 +456,6 @@ void mixStreamFloat(float *target, float *source, int len)
 // Modify left and right channel volume by position. Doesn't change if 
 // sound.x and sound.y == 0.
 // left_vol and right_vol must be initialized before calling.
-static
 void applyPosition(float rel_x, float rel_y, float &left_vol, float &right_vol)
 {
   if (rel_x == 0 && rel_y == 0) {
@@ -519,7 +508,6 @@ void applyPosition(float rel_x, float rel_y, float &left_vol, float &right_vol)
   } // end distance < 1.0
 }
 
-static
 void clampFloat(float *buf, int len)
 {
   float *buf_end = buf + len;
@@ -533,7 +521,6 @@ void clampFloat(float *buf, int len)
   }
 }
 
-static
 int copyMonoSound(uint8_t *buf, const int buf_len, 
                   PlayingSound &sound, SoundBuffer &sound_buf)
 {
@@ -576,7 +563,6 @@ int copyMonoSound(uint8_t *buf, const int buf_len,
   return total_half_copied * 2;
 }
 
-static
 int copyStereoSound(uint8_t *buffer, const int buf_len, 
                     PlayingSound &sound, SoundBuffer &sound_buf)
 {
@@ -611,7 +597,6 @@ int copyStereoSound(uint8_t *buffer, const int buf_len,
   return total_copied;
 }
 
-static
 int copyMonoStream(uint8_t *buf, const int buf_len, 
                    PlayingSound &stream, StreamBuffer &stream_buf)
 {
@@ -672,7 +657,6 @@ int copyMonoStream(uint8_t *buf, const int buf_len,
   return total_half_copied * 2;
 }
 
-static
 int copyStereoStream(uint8_t *buffer, const int buf_len, 
                      PlayingSound &stream, StreamBuffer &stream_buf)
 {
@@ -724,3 +708,4 @@ int copyStereoStream(uint8_t *buffer, const int buf_len,
   return total_copied;
 }
 
+} // end anon namespace

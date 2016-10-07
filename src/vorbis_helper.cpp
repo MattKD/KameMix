@@ -5,6 +5,28 @@
 
 using KameMix::AudioSystem;
 
+namespace {
+
+inline
+int64_t convertedSize(int src_freq, int channels, int64_t blocks)
+{
+  const int dst_freq = AudioSystem::getFrequency(); 
+  const SDL_AudioFormat format = KameMix::getOutputFormat();
+  const int format_size = AudioSystem::getFormatSize();
+  const int bytes_per_block = channels * format_size;
+  SDL_AudioCVT cvt;
+
+  if (SDL_BuildAudioCVT(&cvt, format, channels, src_freq,
+                        format, channels, dst_freq) < 0) {
+   AudioSystem::setError("SDL_BuildAudioCVT failed\n");
+   return -1;
+  }
+
+  return blocks * bytes_per_block * cvt.len_mult;
+}
+
+} // end anon namespace
+
 namespace KameMix {
 
 void getStreamAndOffset(OggVorbis_File &vf, int &bitstream, int64_t &offset)
@@ -31,24 +53,6 @@ bool isMonoOGG(OggVorbis_File &vf)
     }
   }
   return true;
-}
-
-static inline
-int64_t convertedSize(int src_freq, int channels, int64_t blocks)
-{
-  const int dst_freq = AudioSystem::getFrequency(); 
-  const SDL_AudioFormat format = getOutputFormat();
-  const int format_size = AudioSystem::getFormatSize();
-  const int bytes_per_block = channels * format_size;
-  SDL_AudioCVT cvt;
-
-  if (SDL_BuildAudioCVT(&cvt, format, channels, src_freq,
-                        format, channels, dst_freq) < 0) {
-   AudioSystem::setError("SDL_BuildAudioCVT failed\n");
-   return -1;
-  }
-
-  return blocks * bytes_per_block * cvt.len_mult;
 }
 
 // return bufsize to fill data from OGG file.

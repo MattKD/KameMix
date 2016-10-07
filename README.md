@@ -56,12 +56,6 @@ make clean
 
 ---
 
-Mac Build:
-
-TODO
-
----
-
 Documentation:
 
 TODO

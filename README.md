@@ -25,7 +25,7 @@ Windows Visual Studio 2015 Build:
 
 5) Solution should now compile for Debug/Release x86/x64: click Build/Build Solution (F7)
 
-6) To run KameMixTest: Run through Visual Studio (Ctrl-F5), or make sure all dll's (KameMix.dll, SDL2.dll, libogg.dll, libvorbis.dll, libvorbisfile.dll) are in same directory as KameMixTest.exe. The sound directory (in KameMix/test/) must be here as well or have a symbolic link to it, which is created when building solution. Only x86 release dll's are included in KameMix/Windows/KameMixTest/, so x64 KameMixTest builds won't run without you including the x64 dll's.
+6) To run KameMixTest make sure all dll's (KameMix.dll, SDL2.dll, libogg.dll, libvorbis.dll, libvorbisfile.dll) and the sound directory (from "KameMix/test/") are in the same directory as KameMixTest.exe. Only x86 release dll's are included in "KameMix/Windows/KameMixTest/", so x64 KameMixTest builds won't run without you supplying the x64 dll's.
 
 ---
 
@@ -53,12 +53,6 @@ This assumes sound/ and libKameMix.so are in same directory as KameMixTest, whic
 cd KameMix/Linux
 make clean
 ```
-
----
-
-Mac Build:
-
-TODO
 
 ---
 

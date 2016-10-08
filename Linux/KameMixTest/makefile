@@ -6,7 +6,7 @@ KameMix_INCDIR := ../../include
 KameMix_LIBDIR := ../KameMix
 
 SRCDIR := ../../test
-SRCS := kame_mix_test.cpp
+SRCS := $(patsubst $(SRCDIR)/%,%,$(wildcard $(SRCDIR)/*.cpp))
 
 DEPDIR := deps
 DEPS := $(patsubst %.cpp,$(DEPDIR)/%.makefile,$(SRCS))
@@ -14,15 +14,9 @@ DEPS := $(patsubst %.cpp,$(DEPDIR)/%.makefile,$(SRCS))
 ODIR := build
 OBJS := $(patsubst %.cpp,$(ODIR)/%.o,$(SRCS))
 
-KameMixTest: $(OBJS) sound libKameMix.so
+KameMixTest: $(OBJS)
 	$(CXX) -o $@ -I$(KameMix_INCDIR)  -Wl,-rpath,. \
 		$(CFLAGS) $(OBJS) -L$(KameMix_LIBDIR) $(LIBS)
-
-sound:
-	ln -s ../../test/sound sound
-
-libKameMix.so:
-	ln -s ../KameMix/libKameMix.so libKameMix.so
 
 $(DEPDIR):
 	mkdir $@
@@ -33,7 +27,7 @@ $(ODIR):
 -include $(DEPS)
 
 $(DEPDIR)/%.makefile: | $(DEPDIR)
-	$(CXX) $(CFLAGS) -I$(KameMix_INCDIR) -MM $(SRCDIR)/$*.cpp \
+	@$(CXX) $(CFLAGS) -I$(KameMix_INCDIR) -MM $(SRCDIR)/$*.cpp \
 		-MT "$(ODIR)/$*.o $@" > $@
 	
 $(ODIR)/%.o: | $(ODIR)
@@ -44,5 +38,3 @@ clean:
 	rm -rf $(ODIR)
 	rm -rf $(DEPDIR)
 	rm -f KameMixTest
-	rm -f libKameMix.so
-	rm -f sound

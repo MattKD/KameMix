@@ -6,7 +6,7 @@ SDL_INCDIR ?= /usr/include/SDL2
 
 INCDIR := ../../include
 SRCDIR := ../../src
-SRCS := audio_system.cpp sound_buffer.cpp stream_buffer.cpp vorbis_helper.cpp
+SRCS := $(patsubst $(SRCDIR)/%,%,$(wildcard $(SRCDIR)/*.cpp))
 
 DEPDIR := deps
 DEPS := $(patsubst %.cpp,$(DEPDIR)/%.makefile,$(SRCS))
@@ -26,11 +26,11 @@ $(ODIR):
 -include $(DEPS)
 
 $(DEPDIR)/%.makefile: | $(DEPDIR)
-	$(CXX) $(CFLAGS) -I$(INCDIR) -I$(SDL_INCDIR) -MM $(SRCDIR)/$*.cpp \
+	@$(CXX) $(CFLAGS) -I$(INCDIR) -isystem$(SDL_INCDIR) -MM $(SRCDIR)/$*.cpp \
 		-MT "$(ODIR)/$*.o $@" > $@
 	
 $(ODIR)/%.o: | $(ODIR)
-	$(CXX) -o $@ -I$(INCDIR) -I$(SDL_INCDIR) -fpic -c $(SRCDIR)/$*.cpp \
+	$(CXX) -o $@ -I$(INCDIR) -isystem$(SDL_INCDIR) -fpic -c $(SRCDIR)/$*.cpp \
 		$(CFLAGS) 
 		
 .PHONY: clean

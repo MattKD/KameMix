@@ -163,6 +163,7 @@
     <ClInclude Include="..\..\src\audio_mem.h" />
     <ClInclude Include="..\..\src\scope_exit.h" />
     <ClInclude Include="..\..\src\sdl_helper.h" />
+    <ClInclude Include="..\..\src\util.h" />
     <ClInclude Include="..\..\src\vorbis_helper.h" />
     <ClInclude Include="..\..\src\wav_loader.h" />
   </ItemGroup>

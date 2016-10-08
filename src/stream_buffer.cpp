@@ -1,9 +1,10 @@
 #include "stream_buffer.h"
 #include "audio_mem.h"
-#include "vorbis_helper.h"
 #include "wav_loader.h"
 #include "scope_exit.h"
+#include "vorbis_helper.h"
 #include "sdl_helper.h"
+#include "util.h"
 #include <cassert>
 #include <cstring>
 #include <cctype>
@@ -13,7 +14,7 @@
 
 using KameMix::WavFile;
 
-namespace KameMix {
+namespace {
 
 enum StreamType {
   VorbisType,
@@ -21,9 +22,9 @@ enum StreamType {
   InvalidType
 };
 
-struct alignas(std::max_align_t) SharedData2 : StreamBuffer::SharedData {
-  SharedData2() : type{InvalidType} { }
-  ~SharedData2()
+struct SharedData : KameMix::StreamSharedData {
+  SharedData() : type{InvalidType} { }
+  ~SharedData()
   {
     switch (type) {
     case VorbisType:
@@ -47,14 +48,11 @@ struct alignas(std::max_align_t) SharedData2 : StreamBuffer::SharedData {
   };
 };
 
-} // end namespace KameMix
-
-namespace {
-
 // 0.5 sec of stereo float samples at 44100 sample rate
 const int STREAM_SIZE = 22050 * sizeof(float) * 2;
 const int MIN_READ_SAMPLES = 64;
-const size_t HEADER_SIZE = sizeof(KameMix::SharedData2);
+const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(SharedData);
+
 int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
                 int &end_pos, int channels);
 
@@ -73,7 +71,7 @@ bool StreamBuffer::allocData()
     return false;
   }
 
-  SharedData2 *sdata2 = new (this->sdata) SharedData2(); 
+  SharedData *sdata2 = new (this->sdata) SharedData(); 
   sdata2->buffer = (uint8_t*)(sdata2 + 1);
   sdata2->buffer2 = sdata2->buffer + STREAM_SIZE;
   return true;
@@ -84,11 +82,11 @@ void StreamBuffer::release()
   if (sdata) {
     if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
       std::atomic_thread_fence(std::memory_order_acquire);
-      SharedData2 *sdata2 = static_cast<SharedData2*>(this->sdata);
-      sdata2->~SharedData2();
-      km_free(sdata); 
+      SharedData *sdata = static_cast<SharedData*>(this->sdata);
+      sdata->~SharedData();
+      km_free(this->sdata); 
     }
-    sdata = nullptr;
+    this->sdata = nullptr;
   }
 }
 
@@ -136,7 +134,7 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
     return false;
   }
 
-  SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
+  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
@@ -151,8 +149,7 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
   sdata->type = WavType;
   sdata->channels = wf.num_channels >= 2 ? 2 : 1;
   sdata->total_time = wf.totalTime();
-  const int freq = AudioSystem::getFrequency();
-  int64_t total_size = wf.totalBlocks() * sampleBlockSize();
+  const int64_t total_size = wf.totalBlocks() * sampleBlockSize();
   int buf_len = STREAM_SIZE;
   // If the size of decoded file is less than one buffer then 
   // read full file into first buffer without looping to start. 
@@ -191,7 +188,7 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   if (!allocData()) { // failed to allocate
     return false;
   }
-  SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
+  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
@@ -296,7 +293,7 @@ bool StreamBuffer::readMore()
     return false;
   }
 
-  SharedData2 *sdata = static_cast<SharedData2*>(this->sdata);
+  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   switch (sdata->type) {
   case VorbisType:
     sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, STREAM_SIZE, 
@@ -340,24 +337,24 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     sec = 0.0;
   }
 
-  SharedData2 *sdata2 = static_cast<SharedData2*>(this->sdata);
-  switch (sdata2->type) {
+  SharedData *sdata = static_cast<SharedData*>(this->sdata);
+  switch (sdata->type) {
   case VorbisType:
-    if (ov_time_seek(&sdata2->vf, sec) != 0) {
+    if (ov_time_seek(&sdata->vf, sec) != 0) {
       AudioSystem::setError("ov_time_seek failed");
       return false;
     }
 
-    sdata->buffer_size2 = readMoreOGG(sdata2->vf, sdata->buffer2, 
+    sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, 
       STREAM_SIZE, sdata->end_pos2, sdata->channels);
     break;
   case WavType:
-    if (!sdata2->wf.timeSeek(sec)) {
+    if (!sdata->wf.timeSeek(sec)) {
       AudioSystem::setError("wavTimeSeek failed");
       return false;
     }
 
-    sdata->buffer_size2 = readMoreWAV(sdata2->wf, sdata->buffer2, 
+    sdata->buffer_size2 = readMoreWAV(sdata->wf, sdata->buffer2, 
       STREAM_SIZE, sdata->end_pos2, sdata->channels);
     break;
   case InvalidType:

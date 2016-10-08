@@ -1,16 +1,22 @@
 #include "sound_buffer.h"
 #include "audio_mem.h"
-#include "vorbis_helper.h"
 #include "sdl_helper.h"
+#include "vorbis_helper.h"
 #include "wav_loader.h"
 #include "scope_exit.h"
+#include "util.h"
 #include <cassert>
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
 
-static const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
+namespace {
+
+const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(KameMix::SoundSharedData);
+const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
+
+}
 
 namespace KameMix {
 
@@ -129,7 +135,8 @@ bool SoundBuffer::loadWAV(const char *filename)
   }
 
   uint8_t *audio_buf = dst_buf + HEADER_SIZE;
-  sdata = new (dst_buf) SharedData(audio_buf, audio_buf_len, channels);
+  sdata = new (dst_buf) SoundSharedData(audio_buf, audio_buf_len, 
+    channels);
   dst_buf_cleanup.cancel(); // don't free dst_buf
   return true;
 }
@@ -276,7 +283,8 @@ bool SoundBuffer::loadOGG(const char *filename)
     }
   }
 
-  sdata = new(dst_buf) SharedData(audio_buf, audio_buf_len, channels);
+  sdata = new(dst_buf) SoundSharedData(audio_buf, audio_buf_len, 
+    channels);
   dst_buf_cleanup.cancel(); // don't free dst_buf
 
   return true;
@@ -287,7 +295,7 @@ void SoundBuffer::release()
   if (sdata != nullptr) {
     if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
       std::atomic_thread_fence(std::memory_order_acquire);
-      sdata->~SharedData();
+      sdata->~SoundSharedData();
       km_free(sdata);
       sdata = nullptr;
     }

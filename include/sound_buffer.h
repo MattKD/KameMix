@@ -9,6 +9,16 @@
 
 namespace KameMix {
 
+struct SoundSharedData {
+  SoundSharedData(uint8_t *buf, int buf_len, int channels) 
+    : buffer{buf}, refcount{1}, buffer_size{buf_len}, channels{channels} 
+  { }
+  uint8_t *buffer;
+  std::atomic<int> refcount;
+  int buffer_size;
+  int channels;
+};
+
 class DECLSPEC SoundBuffer {
 public:
   SoundBuffer() : sdata{nullptr} { }
@@ -86,18 +96,6 @@ public:
   }
 
 private:
-  struct alignas(std::max_align_t) SharedData {
-    SharedData(uint8_t *buf, int buf_len, int channels) 
-      : buffer{buf}, refcount{1}, buffer_size{buf_len}, channels{channels} 
-    { }
-    uint8_t *buffer;
-    std::atomic<int> refcount;
-    int buffer_size;
-    int channels;
-  };
-
-  static const size_t HEADER_SIZE = sizeof(SharedData);
-
   void incRefCount() 
   { 
     if (sdata) {
@@ -105,7 +103,7 @@ private:
     }
   }
 
-  SharedData *sdata;
+  SoundSharedData *sdata;
 };
 
 } // end namespace KameMix

@@ -35,6 +35,30 @@ advance/updatePos/swapBuffers:
   end_pos2, pos_set, error
 readMore/setPos: time2, buffer2, buffer_size2, end_pos2, pos_set, error
 */
+struct StreamSharedData {
+  StreamSharedData() : total_time{0.0}, time{0.0}, time2{0.0}, buffer{nullptr},
+    buffer2{nullptr}, buffer_size{0}, buffer_size2{0}, end_pos{-1}, 
+    end_pos2{-1}, channels{0}, refcount(1), fully_buffered{false}, 
+    pos_set{false}, error{false} { }
+
+  double total_time; // total stream time in seconds
+  double time; // current time in seconds
+  double time2; // current time of buffer2 in seconds
+  uint8_t *buffer;
+  uint8_t *buffer2;
+  int buffer_size;
+  int buffer_size2; 
+  int end_pos; // 1 past end of stream in bytes, or -1 if end not in buffer
+  int end_pos2; // 1 past end of stream in bytes, or -1 if end not in buffer2
+  int channels;
+  std::atomic<int> refcount;
+  std::mutex mutex;
+  std::mutex mutex2;
+  bool fully_buffered; // whole stream fit into buffer
+  bool pos_set; // setPos called
+  bool error; // error reading
+};
+
 
 class DECLSPEC StreamBuffer {
 public:
@@ -237,30 +261,6 @@ public:
   }
 
 private:
-  struct SharedData {
-    SharedData() : total_time{0.0}, time{0.0}, time2{0.0}, buffer{nullptr},
-      buffer2{nullptr}, buffer_size{0}, buffer_size2{0}, end_pos{-1}, 
-      end_pos2{-1}, channels{0}, refcount(1), fully_buffered{false}, 
-      pos_set{false}, error{false} { }
-
-    double total_time; // total stream time in seconds
-    double time; // current time in seconds
-    double time2; // current time of buffer2 in seconds
-    uint8_t *buffer;
-    uint8_t *buffer2;
-    int buffer_size;
-    int buffer_size2; 
-    int end_pos; // 1 past end of stream in bytes, or -1 if end not in buffer
-    int end_pos2; // 1 past end of stream in bytes, or -1 if end not in buffer2
-    int channels;
-    std::atomic<int> refcount;
-    std::mutex mutex;
-    std::mutex mutex2;
-    bool fully_buffered; // whole stream fit into buffer
-    bool pos_set; // setPos called
-    bool error; // error reading
-  };
-
   void incRefCount() 
   { 
     if (sdata) {
@@ -272,8 +272,7 @@ private:
   void swapBuffersImpl();
   void calcTime(); // sets time2, needs file_read_mutex locked before
 
-  SharedData *sdata;
-  friend struct SharedData2;
+  StreamSharedData *sdata;
 };
 
 

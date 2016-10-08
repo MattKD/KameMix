@@ -44,6 +44,7 @@ enum AudioFormat {
   FloatFormat
 };
 
+
 class DECLSPEC AudioSystem {
 public:
   // Initializes AudioSystem. Must be called before all other KameMix 
@@ -97,6 +98,8 @@ public:
     stream_finished = func;
     stream_finished_data = udata;
   }
+
+  static const int MaxFormatSize = sizeof(float);
 
 private:
   static void addSound(Sound *sound, int loops, int pos, bool paused,

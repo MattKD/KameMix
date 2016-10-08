@@ -10,10 +10,6 @@
 #include <cctype>
 #include <cstdlib>
 
-#include <iostream>
-
-using KameMix::WavFile;
-
 namespace {
 
 enum StreamType {
@@ -32,7 +28,7 @@ struct SharedData : KameMix::StreamSharedData {
       type = InvalidType;
       break;
     case WavType:
-      wf.~WavFile();
+      KameMix_wavClose(&wf);
       type = InvalidType;
       break;
     case InvalidType:
@@ -44,19 +40,20 @@ struct SharedData : KameMix::StreamSharedData {
   StreamType type;
   union {
     OggVorbis_File vf;
-    WavFile wf;
+    KameMix_WavFile wf;
   };
 };
 
 // 0.5 sec of stereo float samples at 44100 sample rate
 const int STREAM_SIZE = 22050 * sizeof(float) * 2;
 const int MIN_READ_SAMPLES = 64;
+// audio data must be aligned when placed after header data
 const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(SharedData);
 
 int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
                 int &end_pos, int channels);
 
-int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len, 
+int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len, 
                 int &end_pos, int channels);
 
 } // end anon namespace 
@@ -71,9 +68,9 @@ bool StreamBuffer::allocData()
     return false;
   }
 
-  SharedData *sdata2 = new (this->sdata) SharedData(); 
-  sdata2->buffer = (uint8_t*)(sdata2 + 1);
-  sdata2->buffer2 = sdata2->buffer + STREAM_SIZE;
+  SharedData *sdata = new (this->sdata) SharedData(); 
+  sdata->buffer = ((uint8_t*)sdata) + HEADER_SIZE;
+  sdata->buffer2 = sdata->buffer + STREAM_SIZE;
   return true;
 }
 
@@ -138,18 +135,18 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
-  WavFile &wf = sdata->wf;
-  new(&wf) WavFile;
-  WavResult wav_result = wf.open(filename);
-  if (wav_result != WAV_OK) {
-    AudioSystem::setError(wavErrResultToStr(wav_result));
+  KameMix_WavFile &wf = sdata->wf;
+  KameMix_WavResult wav_result = KameMix_wavOpen(&wf, filename);
+  if (wav_result != KameMix_WAV_OK) {
+    AudioSystem::setError(KameMix_wavErrStr(wav_result));
     return false;
   }
 
   sdata->type = WavType;
   sdata->channels = wf.num_channels >= 2 ? 2 : 1;
-  sdata->total_time = wf.totalTime();
-  const int64_t total_size = wf.totalBlocks() * sampleBlockSize();
+  sdata->total_time = KameMix_wavTotalTime(&wf);
+  const int64_t total_size = 
+    KameMix_wavTotalBlocks(&wf) * sampleBlockSize();
   int buf_len = STREAM_SIZE;
   // If the size of decoded file is less than one buffer then 
   // read full file into first buffer without looping to start. 
@@ -160,7 +157,7 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
   }
 
   sdata->time = sec;
-  if (!wf.timeSeek(sec)) {
+  if (!KameMix_wavTimeSeek(&wf, sec)) {
     AudioSystem::setError("wavTimeSeek failed");
     return false;
   }
@@ -178,7 +175,6 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
 
   return false;
 }
-
 
 bool StreamBuffer::loadOGG(const char *filename, double sec)
 {
@@ -348,15 +344,17 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, 
       STREAM_SIZE, sdata->end_pos2, sdata->channels);
     break;
-  case WavType:
-    if (!sdata->wf.timeSeek(sec)) {
+  case WavType: {
+    KameMix_WavFile &wf = sdata->wf;
+    if (!KameMix_wavTimeSeek(&wf, sec)) {
       AudioSystem::setError("wavTimeSeek failed");
       return false;
     }
 
-    sdata->buffer_size2 = readMoreWAV(sdata->wf, sdata->buffer2, 
+    sdata->buffer_size2 = readMoreWAV(wf, sdata->buffer2, 
       STREAM_SIZE, sdata->end_pos2, sdata->channels);
     break;
+  }
   case InvalidType:
     assert("setPos called with an invalid file type");
     break;
@@ -627,7 +625,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   return (int)((uint8_t*)dst - buffer);
 }
 
-int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len, 
+int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len, 
                 int &end_pos, int channels)
 {
   using namespace KameMix;
@@ -638,7 +636,7 @@ int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len,
   const int bytes_per_block = AudioSystem::getFormatSize() * channels;
 
   SDL_AudioCVT cvt;
-  if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, wf.rate, 
+  if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, wf.sample_rate, 
                         dst_format, channels, dst_freq) < 0) {
     AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return 0;
@@ -651,14 +649,14 @@ int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len,
   const int MIN_READ_BYTES = MIN_READ_SAMPLES * bytes_per_block;
   
   // Is possible to be at eof from last read, so end_pos to start of buffer
-  if (wf.isEOF()) {
-    wf.blockSeek(0);
+  if (KameMix_wavIsEOF(&wf)) {
+    KameMix_wavBlockSeek(&wf, 0);
     end_pos = 0;
   }
 
   while (!done) {
     int bytes_want = buf_left / cvt.len_mult;
-    int bytes_read = (int)wf.read(cvt.buf, bytes_want);
+    int bytes_read = (int)KameMix_wavRead(&wf, cvt.buf, bytes_want);
     if (bytes_read < 0) {
       AudioSystem::setError("wavRead error\n");
       return 0;
@@ -681,9 +679,9 @@ int readMoreWAV(WavFile &wf, uint8_t *buffer, int buf_len,
     buf_left = (buf_len - (int)(cvt.buf - buffer));
 
     // end_pos is at dst, and must be set after possible convert
-    if (wf.isEOF()) {
+    if (KameMix_wavIsEOF(&wf)) {
       if (end_pos == -1) {
-        wf.blockSeek(0);
+        KameMix_wavBlockSeek(&wf, 0);
         end_pos = (int)(dst - buffer);
       } else {
         // leave at eof for next read

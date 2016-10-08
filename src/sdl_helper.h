@@ -19,14 +19,14 @@ SDL_AudioFormat formatToSDL(AudioFormat format)
 }
 
 inline
-SDL_AudioFormat WAV_formatToSDL(const WavFormat format)
+SDL_AudioFormat WAV_formatToSDL(const KameMix_WavFormat format)
 {
   switch (format) {
-  case WAV_FormatU8:
+  case KameMix_WAV_U8:
     return AUDIO_U8;
-  case WAV_FormatS16:
+  case KameMix_WAV_S16:
     return AUDIO_S16LSB;
-  case WAV_FormatFloat:
+  case KameMix_WAV_Float:
     return AUDIO_F32LSB;
   }
 

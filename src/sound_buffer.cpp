@@ -13,6 +13,7 @@
 
 namespace {
 
+// audio data must be aligned when placed after header data
 const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(KameMix::SoundSharedData);
 const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
 
@@ -60,12 +61,14 @@ bool SoundBuffer::loadWAV(const char *filename)
 {
   release();
 
-  WavFile wf;
-  WavResult wav_result = wf.open(filename);
-  if (wav_result != WAV_OK) {
-    AudioSystem::setError(wavErrResultToStr(wav_result));
+  KameMix_WavFile wf;
+  KameMix_WavResult wav_result = KameMix_wavOpen(&wf, filename);
+  if (wav_result != KameMix_WAV_OK) {
+    AudioSystem::setError(KameMix_wavErrStr(wav_result));
     return false;
   }
+
+  auto wf_cleanup = makeScopeExit([&wf]() { KameMix_wavClose(&wf); });
 
   const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
   const SDL_AudioFormat dst_format = getOutputFormat();
@@ -73,7 +76,7 @@ bool SoundBuffer::loadWAV(const char *filename)
   const int channels = wf.num_channels >= 2 ? 2 : 1;
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, 
-                        wf.rate, dst_format, channels, dst_freq) < 0) {
+      wf.sample_rate, dst_format, channels, dst_freq) < 0) {
     AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return false;
   }
@@ -93,7 +96,8 @@ bool SoundBuffer::loadWAV(const char *filename)
       AudioSystem::setError("Out of memory");
       return false;
     }
-    audio_buf_len = (int)wf.read(dst_buf + HEADER_SIZE, audio_buf_len);
+    audio_buf_len = 
+      (int)KameMix_wavRead(&wf, dst_buf + HEADER_SIZE, audio_buf_len);
     if (audio_buf_len < 0) {
       AudioSystem::setError("WavFile::read error");
       return false;
@@ -110,7 +114,8 @@ bool SoundBuffer::loadWAV(const char *filename)
       return false;
     }
     cvt.buf = dst_buf + HEADER_SIZE;
-    audio_buf_len = (int)wf.read(dst_buf + HEADER_SIZE, audio_buf_len);
+    audio_buf_len = 
+      (int)KameMix_wavRead(&wf, dst_buf + HEADER_SIZE, audio_buf_len);
     if (audio_buf_len < 0) {
       AudioSystem::setError("WavFile::read error");
       return false;

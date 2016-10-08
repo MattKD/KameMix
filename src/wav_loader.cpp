@@ -1,17 +1,40 @@
+#define _FILE_OFFSET_BITS 64 // for fseeko
+
 #include "wav_loader.h"
 #include "scope_exit.h"
 #include <cstring>
-#include <fstream>
+#include <cstdio>
 
 using namespace KameMix;
 
 namespace {
 
-bool readID(WavFile &wf, const char *id)
+inline
+int64_t fseekWrapper(FILE *file, int64_t offset, int origin)
+{
+#ifdef _WIN32
+  return _fseeki64(file, offset, origin);
+#else
+  return fseeko(file, offset, origin); 
+#endif
+}
+
+inline
+int64_t ftellWrapper(FILE *file)
+{
+#ifdef _WIN32
+  return _ftelli64(file);
+#else
+  return ftello(file); 
+#endif
+}
+
+bool readID(KameMix_WavFile &wf, const char *id)
 {
   char chunk_id[5];
-  wf.file.read(chunk_id, 4);
-  if (!wf.file.good()) {
+  FILE *file = (FILE*)wf.file;
+  size_t num_read = fread(chunk_id, 1, 4, file);
+  if (num_read != 4) {
     return false;
   }
   chunk_id[4] = '\0';
@@ -22,178 +45,189 @@ bool readID(WavFile &wf, const char *id)
 }
 
 template <class T>
-bool readNum(WavFile &wf, T &out)
+bool readNum(KameMix_WavFile &wf, T &out)
 {
-  wf.file.read((char*)&out, sizeof(T));
-  if (wf.file.gcount() != sizeof(T)) {
+  FILE *file = (FILE*)wf.file;
+  size_t num_read = fread(&out, 1, sizeof(T), file);
+  if (num_read != sizeof(T)) {
     return false;
   }
 
   return true;
 }
 
-WavResult readHeaders(WavFile &wf)
+KameMix_WavResult readHeaders(KameMix_WavFile &wf)
 {
-  auto scope_exit = makeScopeExit([&wf]() {
-    wf.file.close();
+  FILE *file = (FILE*)wf.file;
+  auto file_cleanup = makeScopeExit([file]() {
+    fclose(file);
   });
 
   if (!readID(wf, "RIFF")) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
 
   uint32_t chunk_size;
   if (!readNum(wf, chunk_size)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
 
   if (!readID(wf, "WAVE")) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
 
   // skip all chunks until 'fmt '
   while (!readID(wf, "fmt ")) {
     if (!readNum(wf, chunk_size)) {
-      return WAV_BadHeader;
+      return KameMix_WAV_BadHeader;
     }
-    wf.file.seekg(chunk_size, std::ios_base::cur);
+    fseekWrapper(file, chunk_size, SEEK_CUR);
   }
 
   // after 'fmt ' now
   if (!readNum(wf, chunk_size)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
 
   if (chunk_size != 16 && chunk_size != 18 && chunk_size != 40) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
   
   uint16_t fmt_code;
   if (!readNum(wf, fmt_code)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
   // not PCM or float
   if (fmt_code != 1 && fmt_code != 3) {
-    return WAV_UnsupportedFormat;
+    return KameMix_WAV_UnsupportedFormat;
   }
  
   uint16_t num_channels;
   if (!readNum(wf, num_channels)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
   wf.num_channels = (uint8_t)num_channels;
 
   uint32_t sample_rate;
   if (!readNum(wf, sample_rate)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
-  wf.rate = sample_rate;
+  wf.sample_rate = sample_rate;
 
   uint32_t byte_rate;
   if (!readNum(wf, byte_rate)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
 
   uint16_t block_align;
   if (!readNum(wf, block_align)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
 
   uint16_t bits_per_sample;
   if (!readNum(wf, bits_per_sample)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
   if (fmt_code == 1) {
     if (bits_per_sample == 8) {
-      wf.format = WAV_FormatU8;
+      wf.format = KameMix_WAV_U8;
     } else if (bits_per_sample == 16) {
-      wf.format = WAV_FormatS16;
+      wf.format = KameMix_WAV_S16;
     } else {
-      return WAV_UnsupportedFormat;
+      return KameMix_WAV_UnsupportedFormat;
     }
   } else {
     if (bits_per_sample == 32) {
-      wf.format = WAV_FormatFloat;
+      wf.format = KameMix_WAV_Float;
     } else {
-      return WAV_UnsupportedFormat;
+      return KameMix_WAV_UnsupportedFormat;
     }
   }
 
   // if there was extension data in format chunk, just skip it
   if (chunk_size > 16) {
-    wf.file.seekg(chunk_size-16, std::ios_base::cur);
+    fseekWrapper(file, chunk_size-16, SEEK_CUR);
   }
 
   // skip all chunks until 'data'
   while (!readID(wf, "data")) {
     if (!readNum(wf, chunk_size)) {
-      return WAV_BadHeader;
+      return KameMix_WAV_BadHeader;
     }
-    wf.file.seekg(chunk_size, std::ios_base::cur);
+    fseekWrapper(file, chunk_size, SEEK_CUR);
   }
 
   if (!readNum(wf, chunk_size)) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
   wf.stream_size = chunk_size;
-  int64_t stream_start = (int64_t)wf.file.tellg();
+  int64_t stream_start = ftellWrapper(file);
   if (stream_start < 0) {
-    return WAV_BadHeader;
+    return KameMix_WAV_BadHeader;
   }
   wf.stream_start = (uint32_t)stream_start;
 
-  scope_exit.cancel(); // don't close file or set error
-  return WAV_OK;
+  file_cleanup.cancel(); // don't close file
+  return KameMix_WAV_OK;
 }
 
 } // end anon namespace
 
-namespace KameMix {
+extern "C" {
 
-WavResult WavFile::open(const char *filename)
+KameMix_WavResult KameMix_wavOpen(KameMix_WavFile *wf, const char *filename)
 {
-  file.open(filename, std::ios_base::in | std::ios_base::binary);
-  if (!file.is_open()) {
-    return WAV_FileOpenError;
+  FILE *file = fopen(filename, "rb");
+  if (!file) {
+    return KameMix_WAV_FileOpenError;
   }
   
-  return readHeaders(*this);
+  wf->file = file;
+  return readHeaders(*wf); // calls flose on erro
 }
 
-bool WavFile::blockSeek(uint32_t block)
+void KameMix_wavClose(KameMix_WavFile *wf)
 {
-  uint32_t byte_offset = blockSize() * block;
-  if (byte_offset >= stream_size) {
+  fclose((FILE*)wf->file);
+}
+
+int KameMix_wavBlockSeek(KameMix_WavFile *wf, uint32_t block)
+{
+  uint32_t byte_offset = KameMix_wavBlockSize(wf) * block;
+  if (byte_offset >= wf->stream_size) {
     byte_offset = 0;
   }
 
-  file.seekg(stream_start + byte_offset, std::ios_base::beg);
-  if (!file.good()) {
-    file.clear(); // clear error bits
-    return false;
+  FILE *file = (FILE*)wf->file;
+  if (fseekWrapper(file, wf->stream_start + byte_offset, SEEK_SET) != 0) {
+    clearerr(file);
+    return 0;
   }
-  stream_pos = byte_offset;
-  return true;
+
+  wf->stream_pos = byte_offset;
+  return 1;
 }
 
-int64_t WavFile::read(uint8_t *buf, uint32_t buf_len)
+int64_t KameMix_wavRead(KameMix_WavFile *wf, uint8_t *buf, 
+                        uint32_t buf_len)
 {
-  buf_len = buf_len / blockSize() * blockSize();
-  file.read((char*)buf, buf_len);
+  const int block_size = KameMix_wavBlockSize(wf);
+  buf_len = (buf_len / block_size) * block_size;
+  FILE *file = (FILE*)wf->file;
+  uint32_t num_read = (uint32_t)fread(buf, 1, buf_len, file);
   
-  if (!file.good()) {
-    if (!file.eof()) {
-      file.clear(); // clear error bits
+  if (num_read < buf_len) {
+    if (feof(file) == 0) { // not eof, so there was an error
+      clearerr(file);
       return -1;
     }
-    file.clear(); // clear eof
+    clearerr(file); // clear eof
   }
 
-  uint32_t num_read = (uint32_t)file.gcount();
-  stream_pos += num_read;
+  wf->stream_pos += num_read;
   return num_read;
 }
 
-}
+} // end extern "C"
 
 

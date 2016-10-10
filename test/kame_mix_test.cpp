@@ -7,6 +7,7 @@
 
 using namespace KameMix;
 using std::cout;
+using std::cerr;
 
 void onSoundFinished(Sound *sound, void *udata)
 {
@@ -20,7 +21,9 @@ void onStreamFinished(Stream *stream, void *udata)
 
 int main(int argc, char *argv[])
 {
-  if (!AudioSystem::init()) {
+  //OutAudioFormat format = OutFormat_S16;
+  OutAudioFormat format = OutFormat_Float;
+  if (!AudioSystem::init(44100, 2048, format)) {
     cout << "AudioSystem::init failed\n";
     return 1;
   }
@@ -33,56 +36,57 @@ int main(int argc, char *argv[])
   //Group effect_group(0.25f);
   //Listener listener(0, 0);
 
-  const char *file_path = "sound/spell1_0.wav";
-  Sound spell1(file_path);
+  const char *file_path = "sound/spell1.wav";
+  Stream spell1(file_path);
   if (!spell1.isLoaded()) {
-    cout << "Couldn't load " << file_path << "\n";
+    cerr << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
   file_path = "sound/spell3.wav";
   Sound spell3(file_path);
   if (!spell3.isLoaded()) {
-    cout << "Couldn't load " << file_path << "\n";
+    cerr << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  file_path = "sound/Mudchute_cow_1.ogg";
+  file_path = "sound/cow.ogg";
   Sound cow(file_path);
   if (!cow.isLoaded()) {
-    cout << "Couldn't load " << file_path << "\n";
+    cerr << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  file_path = "sound/Mudchute_duck_2.ogg";
+  file_path = "sound/duck.ogg";
   Stream duck(file_path);
   if (!duck.isLoaded()) {
-    cout << "Couldn't load " << file_path << "\n";
+    cerr << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
   file_path = "sound/dark fallout.ogg";
-  Sound music1(file_path);
+  Stream music1(file_path);
   if (!music1.isLoaded()) {
-    cout << "Couldn't load " << file_path << "\n";
+    cerr << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
   file_path = "sound/a new beginning.ogg";
-  Stream music2(file_path);
+  Sound music2(file_path);
   if (!music2.isLoaded()) {
-    cout << "Couldn't load " << file_path << "\n";
+    cerr << "Couldn't load " << file_path << "\n";
     return EXIT_FAILURE;
   }
 
-  spell1.play(5);
-  cout << "play spell1 5 times\n";
-  spell3.play(5);
-  cout << "play spell3 5 times\n";
-  cow.play(5);
-  cout << "play cow 5 times\n";
-  duck.play(5);
-  cout << "play duck 5 times\n";
+  spell1.play(6);
+  cout << "play spell1 7 times\n";
+  spell3.play(6);
+  cout << "play spell3 7 times\n";
+  cow.play(6);
+  cout << "play cow 7 times\n";
+  duck.play(6);
+  duck.setVolume(1.25f);
+  cout << "play duck 7 times\n";
 
   double time_ms = 0.0;
   int count = 0;
@@ -92,11 +96,11 @@ int main(int argc, char *argv[])
     std::this_thread::sleep_for(std::chrono::milliseconds(17));
     time_ms += 17;
 
-    if (time_ms > 5000 && count == 0) {
-      cout << "play music1\n";
+    if (time_ms > 10000 && count == 0) {
+      cout << "play music1 starting at 40sec for 10secs\n";
       time_ms = 0.0;
       count++;
-      music1.play(0, false);
+      music1.playAt(0, 40.0f);
     } else if (time_ms > 10000 && count == 1) {
       cout << "Fadeout music1 over 10 secs\n";
       time_ms = 0.0;

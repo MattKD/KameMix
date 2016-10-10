@@ -8,10 +8,13 @@
 namespace KameMix {
 
 inline
-SDL_AudioFormat formatToSDL(AudioFormat format)
+SDL_AudioFormat outFormatToSDL(OutAudioFormat format)
 {
-  if (format == FloatFormat) {
+  switch (format) {
+  case OutFormat_Float:
     return AUDIO_F32SYS;
+  case OutFormat_S16:
+    return AUDIO_S16SYS;
   }
 
   assert("Unknown AudioFormat");
@@ -37,7 +40,7 @@ SDL_AudioFormat WAV_formatToSDL(const KameMix_WavFormat format)
 inline
 SDL_AudioFormat getOutputFormat()
 {
-  return formatToSDL(AudioSystem::getFormat());
+  return outFormatToSDL(AudioSystem::getFormat());
 }
 
 }

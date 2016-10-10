@@ -5,11 +5,12 @@
 
 namespace KameMix {
 
-void getStreamAndOffset(OggVorbis_File &vf, int &bitstream, int64_t &offset);
+void getStreamAndOffset(OggVorbis_File &vf, int &bitstream, 
+                        int64_t &offset);
 bool isMonoOGG(OggVorbis_File &vf);
 // return bufsize to fill data from OGG file.
 // returns -1 if an error occured
-int64_t calcBufSizeOGG(OggVorbis_File &vf, int channels);
+int64_t calcBufSizeOGG(OggVorbis_File &vf, int channels, bool float_format);
 
 } // namespace KameMix
 

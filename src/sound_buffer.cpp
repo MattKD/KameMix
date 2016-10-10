@@ -165,7 +165,7 @@ bool SoundBuffer::loadOGG(const char *filename)
   uint8_t *dst_buf;
   // calc size of audio_buf including needed conversion
   {
-    int64_t tmp_len = calcBufSizeOGG(vf, channels); 
+    int64_t tmp_len = calcBufSizeOGG(vf, channels, true); 
     if (tmp_len > MAX_BUFF_SIZE) {
       AudioSystem::setError("Audio file is too large\n");
       return false;
@@ -285,6 +285,7 @@ bool SoundBuffer::loadOGG(const char *filename)
     if (tmp) {
       dst_buf = tmp;
       audio_buf = dst_buf + HEADER_SIZE;
+      audio_buf_len = audio_buf_used;
     }
   }
 

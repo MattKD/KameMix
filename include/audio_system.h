@@ -39,11 +39,10 @@ private:
   float x, y;
 };
 
-// Only float supported for now
-enum AudioFormat {
-  FloatFormat
+enum OutAudioFormat {
+  OutFormat_Float,
+  OutFormat_S16
 };
-
 
 class DECLSPEC AudioSystem {
 public:
@@ -51,6 +50,7 @@ public:
   // functions. Only call once in application, even if shutdown is called. 
   static bool init(int freq = 44100, 
                    int sample_buf_size = 2048, 
+                   OutAudioFormat format = OutFormat_Float,
                    MallocFunc custom_malloc = nullptr,
                    FreeFunc custom_free = nullptr,
                    ReallocFunc custom_realloc = nullptr);
@@ -67,12 +67,16 @@ public:
 
   static int getFrequency() { return frequency; }
   static int getChannels() { return channels; }
-  static AudioFormat getFormat() { return format; }
+  static OutAudioFormat getFormat() { return format; }
+
   // Size in bytes of sample output format
   static int getFormatSize() 
   { 
-    if (format == FloatFormat) {
+    switch (format) {
+    case OutFormat_Float:
       return sizeof(float);
+    case OutFormat_S16:
+      return sizeof(int16_t);
     }
     assert("Unknown AudioFormat");
     return 0;
@@ -128,7 +132,7 @@ private:
 
   static int channels;
   static int frequency;
-  static AudioFormat format;
+  static OutAudioFormat format;
   static float master_volume;
   static const int error_len = 256;
   static char error_string[error_len];

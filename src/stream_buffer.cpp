@@ -51,10 +51,10 @@ const int MIN_READ_SAMPLES = 64;
 const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(SharedData);
 
 int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels);
+                int &end_pos, int channels, bool stop_at_eof);
 
 int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels);
+                int &end_pos, int channels, bool stop_at_eof);
 
 } // end anon namespace 
 
@@ -163,7 +163,7 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
   }
 
   sdata->buffer_size = readMoreWAV(wf, sdata->buffer, buf_len, 
-    sdata->end_pos, sdata->channels);
+    sdata->end_pos, sdata->channels, sdata->fully_buffered);
   if (sdata->buffer_size > 0) {
     if (sdata->fully_buffered && sdata->end_pos == -1) {
       assert("End of stream must be reached when fully buffered");
@@ -206,6 +206,7 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   const int freq = AudioSystem::getFrequency();
   int64_t total_samples = (int64_t)(sdata->total_time * freq);
   int64_t total_size = total_samples * sampleBlockSize();
+
   int buf_len = STREAM_SIZE;
   // If the size of decoded file is less than one buffer then 
   // read full file into first buffer without looping to start. 
@@ -221,7 +222,7 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
     return false;
   }
   sdata->buffer_size = readMoreOGG(sdata->vf, sdata->buffer, buf_len, 
-    sdata->end_pos, sdata->channels);
+    sdata->end_pos, sdata->channels, sdata->fully_buffered);
   if (sdata->buffer_size > 0) {
     if (sdata->fully_buffered && sdata->end_pos == -1) {
       assert("End of stream must be reached when fully buffered");
@@ -293,11 +294,11 @@ bool StreamBuffer::readMore()
   switch (sdata->type) {
   case VorbisType:
     sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, STREAM_SIZE, 
-      sdata->end_pos2, sdata->channels);
+      sdata->end_pos2, sdata->channels, false);
     break;
   case WavType:
     sdata->buffer_size2 = readMoreWAV(sdata->wf, sdata->buffer2, 
-      STREAM_SIZE, sdata->end_pos2, sdata->channels);
+      STREAM_SIZE, sdata->end_pos2, sdata->channels, false);
     break;
   case InvalidType:
     assert("StreamBuffer tag was invalid");
@@ -342,7 +343,7 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     }
 
     sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, 
-      STREAM_SIZE, sdata->end_pos2, sdata->channels);
+      STREAM_SIZE, sdata->end_pos2, sdata->channels, false);
     break;
   case WavType: {
     KameMix_WavFile &wf = sdata->wf;
@@ -352,7 +353,7 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     }
 
     sdata->buffer_size2 = readMoreWAV(wf, sdata->buffer2, 
-      STREAM_SIZE, sdata->end_pos2, sdata->channels);
+      STREAM_SIZE, sdata->end_pos2, sdata->channels, false);
     break;
   }
   case InvalidType:
@@ -472,7 +473,7 @@ void StreamBuffer::swapBuffersImpl()
 namespace {
 
 int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels)
+                int &end_pos, int channels, bool stop_at_eof)
 {
   using namespace KameMix;
   end_pos = -1;
@@ -480,7 +481,8 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   // Only float output supported for now
   const SDL_AudioFormat src_format = AUDIO_F32SYS;
   const SDL_AudioFormat dst_format = getOutputFormat();
-  const int bytes_per_block = AudioSystem::getFormatSize() * channels;
+  const int bytes_per_src_block = sizeof(float) * channels;
+  const int bytes_per_dst_block = AudioSystem::getFormatSize() * channels;
 
   int stream_idx; 
   int64_t offset;
@@ -504,7 +506,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   }
   cvt.buf = buffer;
   float *dst = (float*)buffer;
-  int buf_samples_left = buf_len / bytes_per_block;
+  int buf_samples_left = buf_len / bytes_per_src_block;
   // pointer to array of sample channels, each channel is array of floats
   float **channel_buf; 
   bool done = false;
@@ -516,8 +518,8 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
       int tmp_idx;
       samples_read = ov_read_float(&vf, &channel_buf, samples_want, 
         &tmp_idx);
-      assert (stream_idx == tmp_idx &&
-              "stream idx is detected before ov_read_float");
+      assert(stream_idx == tmp_idx &&
+             "stream idx is detected before ov_read_float");
     }
 
     if (samples_read <= 0) {
@@ -566,6 +568,10 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
         if (end_pos == -1) {
           ov_pcm_seek(&vf, 0);
           end_pos_found = true; // set end_pos after possible convert
+          convert_needed = true;
+          if (stop_at_eof) {
+            done = true;
+          }
         } else {
           // can only have 1 end_pos, so leave EOF for next read
           done = true;
@@ -582,7 +588,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
     }
 
     // try to convert to save space, if stream frequency changed, 
-    // or EOF reached 2 times
+    // or EOF reached (2 times or with stop_at_eof)
     if (buf_samples_left / cvt.len_mult < MIN_READ_SAMPLES ||
         convert_needed) {
       if (cvt.needed) {
@@ -592,7 +598,9 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
           AudioSystem::setError("SDL_ConvertAudio failed\n");
           return 0;
         }
-        cvt.buf += (cvt.len_cvt / bytes_per_block) * bytes_per_block;
+        cvt.needed = 1; // make sure not unset in SDL_ConvertAudio
+        cvt.buf += (cvt.len_cvt / bytes_per_dst_block) 
+                * bytes_per_dst_block;
         dst = (float*)cvt.buf;
       } else {
         cvt.buf = (uint8_t*)dst;
@@ -608,7 +616,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
       }
 
       buf_samples_left = (buf_len - (int)(cvt.buf - buffer)) 
-        / bytes_per_block;
+        / bytes_per_src_block;
     }
 
     // end_pos is at dst, and must be set after possible convert
@@ -626,7 +634,7 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
 }
 
 int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels)
+                int &end_pos, int channels, bool stop_at_eof)
 {
   using namespace KameMix;
   end_pos = -1;
@@ -683,6 +691,9 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
       if (end_pos == -1) {
         KameMix_wavBlockSeek(&wf, 0);
         end_pos = (int)(dst - buffer);
+        if (stop_at_eof) {
+          done = true;
+        }
       } else {
         // leave at eof for next read
         done = true; 

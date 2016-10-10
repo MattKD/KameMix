@@ -53,7 +53,6 @@ bool SoundBuffer::load(const char *filename)
     return loadWAV(filename);
   }
 
-  AudioSystem::setError("Unsupported file type");
   return false;
 }
 
@@ -64,7 +63,6 @@ bool SoundBuffer::loadWAV(const char *filename)
   KameMix_WavFile wf;
   KameMix_WavResult wav_result = KameMix_wavOpen(&wf, filename);
   if (wav_result != KameMix_WAV_OK) {
-    AudioSystem::setError(KameMix_wavErrStr(wav_result));
     return false;
   }
 
@@ -77,7 +75,6 @@ bool SoundBuffer::loadWAV(const char *filename)
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, 
       wf.sample_rate, dst_format, channels, dst_freq) < 0) {
-    AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return false;
   }
 
@@ -87,42 +84,35 @@ bool SoundBuffer::loadWAV(const char *filename)
   int audio_buf_len = wf.stream_size;
   if (!cvt.needed) {
     if (audio_buf_len > MAX_BUFF_SIZE) {
-      AudioSystem::setError("Audio file is too large\n");
       return false;
     }
 
     dst_buf = (uint8_t*)km_malloc_(audio_buf_len + HEADER_SIZE);
     if (!dst_buf) {
-      AudioSystem::setError("Out of memory");
       return false;
     }
     audio_buf_len = 
       (int)KameMix_wavRead(&wf, dst_buf + HEADER_SIZE, audio_buf_len);
     if (audio_buf_len < 0) {
-      AudioSystem::setError("WavFile::read error");
       return false;
     }
   } else {
     if ((int64_t)cvt.len_mult * (int64_t)audio_buf_len > MAX_BUFF_SIZE) {
-      AudioSystem::setError("Audio file is too large\n");
       return false;
     }
     cvt.len = audio_buf_len;
     dst_buf = (uint8_t*)km_malloc_(cvt.len * cvt.len_mult + HEADER_SIZE);
     if (!dst_buf) {
-      AudioSystem::setError("Out of memory");
       return false;
     }
     cvt.buf = dst_buf + HEADER_SIZE;
     audio_buf_len = 
       (int)KameMix_wavRead(&wf, dst_buf + HEADER_SIZE, audio_buf_len);
     if (audio_buf_len < 0) {
-      AudioSystem::setError("WavFile::read error");
       return false;
     }
 
     if (SDL_ConvertAudio(&cvt) != 0) {
-      AudioSystem::setError("SDL_ConvertAudio failed\n");
       return false;
     }
     
@@ -152,7 +142,6 @@ bool SoundBuffer::loadOGG(const char *filename)
   OggVorbis_File vf;
 
   if (ov_fopen(filename, &vf) != 0) {
-    AudioSystem::setError("ov_fopen failed\n");
     return false;
   }
 
@@ -167,16 +156,14 @@ bool SoundBuffer::loadOGG(const char *filename)
   {
     int64_t tmp_len = calcBufSizeOGG(vf, channels, true); 
     if (tmp_len > MAX_BUFF_SIZE) {
-      AudioSystem::setError("Audio file is too large\n");
       return false;
     }
     if (tmp_len == -1) {
-      return false; // error set in caclBufSizeOGG
+      return false;
     }
     audio_buf_len = (int)tmp_len; 
     dst_buf = (uint8_t*)km_malloc_(audio_buf_len + HEADER_SIZE);
     if (!dst_buf) {
-      AudioSystem::setError("Out of memory");
       return false;
     }
   }
@@ -205,7 +192,6 @@ bool SoundBuffer::loadOGG(const char *filename)
     if (samples_read <= 0) {
       assert(samples_read != 0 &&
              "EOF should be detected before calling ov_read_float");
-      AudioSystem::setError("ov_read_float error\n");
       return false;
     } else {
       if (channels == 1) { // src has only mono streams, so store as mono
@@ -248,7 +234,6 @@ bool SoundBuffer::loadOGG(const char *filename)
           SDL_AudioCVT cvt;
           if (SDL_BuildAudioCVT(&cvt, AUDIO_F32SYS, channels, last_src_freq, 
                                 dst_format, channels, dst_freq) < 0) {
-            AudioSystem::setError("SDL_BuildAudioCVT failed\n");
             return false;
           }
           cvt.buf = cvt_buf;
@@ -256,7 +241,6 @@ bool SoundBuffer::loadOGG(const char *filename)
           cvt.len = (int)((uint8_t*)dst - cvt.buf); 
           if (cvt.needed) {
             if (SDL_ConvertAudio(&cvt) < 0) {
-              AudioSystem::setError("SDL_ConvertAudio failed\n");
               return false;
             }
             const int block_size = channels * AudioSystem::getFormatSize();

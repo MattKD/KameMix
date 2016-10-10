@@ -119,7 +119,6 @@ int audio_mix_buf_len = 0;
 std::mutex audio_mutex;
 float secs_per_callback = 0.0f;
 
-
 template <class T>
 void applyVolume(T *stream, int len, float left_vol, float right_vol)
 {
@@ -422,7 +421,6 @@ int AudioSystem::channels;
 int AudioSystem::frequency;
 OutAudioFormat AudioSystem::format;
 float AudioSystem::master_volume = 1.0f;
-char AudioSystem::error_string[error_len] = "\0";
 MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
@@ -437,27 +435,17 @@ int AudioSystem::numberPlaying()
   return (int)sounds->size(); 
 }
 
-void AudioSystem::setError(const char *err, ...)
-{
-  va_list args;
-  va_start(args, err);
-  vsnprintf(error_string, error_len, err, args); 
-  va_end(args);
-}
-
 bool AudioSystem::init(int freq, int sample_buf_size, OutAudioFormat format,
                        MallocFunc custom_malloc,
                        FreeFunc custom_free,
                        ReallocFunc custom_realloc)
 {
   if (SDL_Init(SDL_INIT_AUDIO) < 0) {
-    setError("SDL_Init(SDL_INIT_AUDIO) failed\n");
     return false;
   }
 
   if (custom_malloc || custom_free || custom_realloc) { // at least one set
     if (!(custom_malloc && custom_free && custom_realloc)) { // not all set
-      setError("Custom malloc supplied without custom free\n");
       return false;
     }
   }
@@ -480,7 +468,6 @@ bool AudioSystem::init(int freq, int sample_buf_size, OutAudioFormat format,
                                allowed_changes);
   if (dev_id == 0) {
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
-    setError("SDL_OpenAudioDevice failed\n");
     return false;
   }
 

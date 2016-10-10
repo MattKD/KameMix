@@ -86,11 +86,6 @@ public:
   static FreeFunc getFree() { return user_free; }
   static ReallocFunc getRealloc() { return user_realloc; }
 
-  // Returns description string of last error. Do NOT delete string.
-  static const char* getError() { return error_string; }
-  // Uses same format specifiers as sprintf
-  static void setError(const char *error, ...);
-
   static void setSoundFinished(SoundFinishedFunc func, void *udata)
   {
     sound_finished = func;
@@ -134,8 +129,6 @@ private:
   static int frequency;
   static OutAudioFormat format;
   static float master_volume;
-  static const int error_len = 256;
-  static char error_string[error_len];
   static MallocFunc user_malloc;
   static FreeFunc user_free;
   static ReallocFunc user_realloc;

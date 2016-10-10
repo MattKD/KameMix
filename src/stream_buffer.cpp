@@ -64,7 +64,6 @@ bool StreamBuffer::allocData()
 {
   sdata = (SharedData*)km_malloc_(STREAM_SIZE * 2 + HEADER_SIZE);
   if (!sdata) {
-    AudioSystem::setError("Out of memory");
     return false;
   }
 
@@ -138,7 +137,6 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
   KameMix_WavFile &wf = sdata->wf;
   KameMix_WavResult wav_result = KameMix_wavOpen(&wf, filename);
   if (wav_result != KameMix_WAV_OK) {
-    AudioSystem::setError(KameMix_wavErrStr(wav_result));
     return false;
   }
 
@@ -158,7 +156,6 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
 
   sdata->time = sec;
   if (!KameMix_wavTimeSeek(&wf, sec)) {
-    AudioSystem::setError("wavTimeSeek failed");
     return false;
   }
 
@@ -189,14 +186,12 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
   if (ov_fopen(filename, &sdata->vf) != 0) {
-    AudioSystem::setError("ov_fopen failed\n");
     return false;
   }
 
   sdata->type = VorbisType;
 
   if (ov_seekable(&sdata->vf) == 0) {
-    AudioSystem::setError("OGG file is not seekable\n");
     return false;
   }
 
@@ -218,7 +213,6 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
 
   sdata->time = sec;
   if (ov_time_seek(&sdata->vf, sec) != 0) {
-    AudioSystem::setError("ov_time_seek failed");
     return false;
   }
   sdata->buffer_size = readMoreOGG(sdata->vf, sdata->buffer, buf_len, 
@@ -338,7 +332,6 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
   switch (sdata->type) {
   case VorbisType:
     if (ov_time_seek(&sdata->vf, sec) != 0) {
-      AudioSystem::setError("ov_time_seek failed");
       return false;
     }
 
@@ -348,7 +341,6 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
   case WavType: {
     KameMix_WavFile &wf = sdata->wf;
     if (!KameMix_wavTimeSeek(&wf, sec)) {
-      AudioSystem::setError("wavTimeSeek failed");
       return false;
     }
 
@@ -501,7 +493,6 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, channels, last_src_freq, 
                         dst_format, channels, dst_freq) < 0) {
-    AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return 0;
   }
   cvt.buf = buffer;
@@ -525,7 +516,6 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
     if (samples_read <= 0) {
       // EOF is checked manually with bitstream/offset
       assert (samples_read < 0);
-      AudioSystem::setError("ov_read_float error\n");
       return 0;
     } 
 
@@ -595,7 +585,6 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
         // len of data to be converted
         cvt.len = (int)((uint8_t*)dst - cvt.buf); 
         if (SDL_ConvertAudio(&cvt) < 0) {
-          AudioSystem::setError("SDL_ConvertAudio failed\n");
           return 0;
         }
         cvt.needed = 1; // make sure not unset in SDL_ConvertAudio
@@ -609,7 +598,6 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
       if (freq_changed) {
         if (SDL_BuildAudioCVT(&cvt, src_format, channels, last_src_freq, 
                               dst_format, channels, dst_freq) < 0) {
-          AudioSystem::setError("SDL_BuildAudioCVT failed\n");
           return 0;
         }
         cvt.buf = (uint8_t*)dst;
@@ -646,7 +634,6 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, wf.sample_rate, 
                         dst_format, channels, dst_freq) < 0) {
-    AudioSystem::setError("SDL_BuildAudioCVT failed\n");
     return 0;
   }
 
@@ -666,7 +653,6 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
     int bytes_want = buf_left / cvt.len_mult;
     int bytes_read = (int)KameMix_wavRead(&wf, cvt.buf, bytes_want);
     if (bytes_read < 0) {
-      AudioSystem::setError("wavRead error\n");
       return 0;
     } 
 
@@ -675,7 +661,6 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
       // len of data to be converted
       cvt.len = (int)(dst - cvt.buf); 
       if (SDL_ConvertAudio(&cvt) < 0) {
-        AudioSystem::setError("SDL_ConvertAudio failed\n");
         return 0;
       }
       cvt.buf += (cvt.len_cvt / bytes_per_block) * bytes_per_block;

@@ -19,7 +19,6 @@ int64_t convertedSize(int src_freq, SDL_AudioFormat src_format,
 
   if (SDL_BuildAudioCVT(&cvt, src_format, channels, src_freq,
                         dst_format, channels, dst_freq) < 0) {
-   AudioSystem::setError("SDL_BuildAudioCVT failed\n");
    return -1;
   }
 

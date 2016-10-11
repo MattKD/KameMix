@@ -17,6 +17,15 @@ using namespace KameMix;
 
 namespace {
 
+SDL_AudioDeviceID dev_id;
+// for copying sound/stream data before mixing
+uint8_t *audio_tmp_buf = nullptr; 
+int audio_tmp_buf_len = 0;
+int32_t *audio_mix_buf = nullptr; // for mixing int16_t audio
+int audio_mix_buf_len = 0;
+std::mutex audio_mutex;
+float secs_per_callback = 0.0f;
+
 enum PlayingType : uint8_t {
   SoundType,
   StreamType
@@ -32,17 +41,44 @@ enum PlayingState : uint8_t {
 
 struct PlayingSound {
   PlayingSound(Sound *s, int loops, int buf_pos, bool paused, float fade) :
-    sound{s}, buffer_pos{buf_pos}, loop_count{loops}, fade_total{fade},
-    fade_time{0.0f}, tag{SoundType}, state{ReadyState}
+    sound{s}, buffer_pos{buf_pos}, loop_count{loops},
+    tag{SoundType}, state{ReadyState}
   { 
+    setFadein(fade);
     updateSound();
   }
 
   PlayingSound(Stream *s, int loops, int buf_pos, bool paused, float fade) :
     stream{s}, buffer_pos{buf_pos}, loop_count{loops}, fade_total{fade},
-    fade_time{0.0f}, tag{StreamType}, state{ReadyState}
+    tag{StreamType}, state{ReadyState}
   { 
+    setFadein(fade);
     updateStream();
+  }
+
+  void setFadein(float fade)
+  {
+    if (fade < secs_per_callback) {
+      fade_total = secs_per_callback;
+    } else {
+      fade_total = fade;
+    }
+    fade_time = 0.0f;
+  }
+
+  void setFadeout(float fade)
+  {
+    if (fade < secs_per_callback) {
+      fade_total = secs_per_callback;
+    } else {
+      fade_total = fade;
+    }
+    fade_time = fade_total;
+  }
+
+  void unsetFade()
+  {
+    fade_total = fade_time = 0.0f;
   }
 
   void updateSound()
@@ -110,22 +146,92 @@ struct PlayingSound {
 typedef std::vector<PlayingSound, Alloc<PlayingSound>> SoundBuf;
 
 SoundBuf *sounds = nullptr;
-SDL_AudioDeviceID dev_id;
-// for copying sound/stream data before mixing
-uint8_t *audio_tmp_buf = nullptr; 
-int audio_tmp_buf_len = 0;
-int32_t *audio_mix_buf = nullptr; // for mixing int16_t audio
-int audio_mix_buf_len = 0;
-std::mutex audio_mutex;
-float secs_per_callback = 0.0f;
+
+struct FadeData {
+  double fade; // fade_percent
+  // increment/decrement to add to fade each time after applying fade to 
+  // audio stream 
+  double mod; 
+  // number of times to add mod to fade; 0 means apply fade once to 
+  // audio stream without adding mod after
+  int mod_times; 
+};
+
+FadeData getFade(PlayingSound &sound)
+{
+  if (sound.fade_total > 0.0f) {
+    // min fade_total is secs_per_callback, so max fade_delta is 1.0
+    const double fade_delta = secs_per_callback / sound.fade_total;
+    // divide audio stream into 20ms chunks
+    const double chunk_secs = 0.02;
+    FadeData fdata;
+    fdata.fade = (double)sound.fade_time / sound.fade_total;
+    fdata.mod_times = (int)(fade_delta / chunk_secs);
+    fdata.mod = fade_delta / (fdata.mod_times + 1);
+
+    if (sound.state == FadeOutState) {
+      fdata.mod *= -1;
+      sound.fade_time -= secs_per_callback;
+      if (sound.fade_time <= 0.0f) {
+        // Finished not Stopped state, so mix_idx is unset in update
+        sound.state = FinishedState; 
+        sound.unsetFade();
+      }
+    } else {
+      sound.fade_time += secs_per_callback;
+      if (sound.fade_time >= sound.fade_total) {
+        sound.unsetFade();
+      }
+    }
+
+    return fdata;
+  } else {
+    FadeData fdata;
+    fdata.fade = 1.0;
+    fdata.mod = 0.0;
+    fdata.mod_times = 0;
+    return fdata;
+  }
+}
 
 template <class T>
-void applyVolume(T *stream, int len, float left_vol, float right_vol)
+void applyVolume(T *stream, int len, double left_vol, double right_vol)
 {
   for (int i = 0; i < len; i += 2) {
     stream[i] = (T)(stream[i] * left_vol);
     stream[i+1] = (T)(stream[i+1] * right_vol);
   }
+}
+
+// len_ must be even because stream is stereo
+template <class T>
+void applyVolume(T *stream, int len_, double left_vol_, double right_vol_,
+                 const FadeData &fdata)
+{
+  double fade = fdata.fade;
+  int pos = 0;
+  // make sure len is even after dividing by mod_times+1
+  int len = (len_ / 2) / (fdata.mod_times + 1) * 2;
+
+  for (int i = 0; i < fdata.mod_times; ++i) {
+    double left_vol = left_vol_ * fade;
+    double right_vol = right_vol_ * fade;
+    applyVolume(stream+pos, len, left_vol, right_vol);
+    pos += len;
+    fade += fdata.mod;
+    if (fade > 1.0) {
+      fade = 1.0;
+    } else if (fade < 0.0) {
+      fade = 0.0;
+    }
+  }
+
+  double left_vol = left_vol_ * fade;
+  double right_vol = right_vol_ * fade;
+  // len*(fdata.mod_times+1) can be less than len_, so make sure to
+  // include all last samples
+  len = len_ - pos;
+  applyVolume(stream+pos, len, left_vol, right_vol);
 }
 
 struct CopyResult {
@@ -306,30 +412,6 @@ void mixStream(T *target, U *source, int len)
   }
 }
 
-void applyFade(PlayingSound &sound, float &left_vol, float &right_vol)
-{
-  if (sound.fade_total > 0.0f) {
-    float fade_percent = sound.fade_time / sound.fade_total;
-    if (sound.state == FadeOutState) {
-      sound.fade_time -= secs_per_callback;
-      if (sound.fade_time <= 0.0f) {
-        // Finished not Stopped state, so mix_idx is unset in update
-        sound.state = FinishedState; 
-        sound.fade_total = 0.0f;
-        sound.fade_time = 0.0f;
-      }
-    } else {
-      sound.fade_time += secs_per_callback;
-      if (sound.fade_time >= sound.fade_total) {
-        sound.fade_total = 0.0f;
-        sound.fade_time = 0.0f;
-      }
-    }
-    left_vol *= fade_percent;
-    right_vol *= fade_percent;
-  }
-}
-
 // Modify left and right channel volume by position. Doesn't change if 
 // sound.x and sound.y == 0.
 // left_vol and right_vol must be initialized before calling.
@@ -413,7 +495,7 @@ void clamp(int16_t *target, int32_t *src, int len)
   }
 }
 
-} // end anon KameMix
+} // end anon namespace
 
 namespace KameMix {
 
@@ -429,13 +511,15 @@ StreamFinishedFunc AudioSystem::stream_finished;
 void* AudioSystem::sound_finished_data;
 void* AudioSystem::stream_finished_data;
 
+// May include stopped/finished sounds if called far away from update
 int AudioSystem::numberPlaying() 
 { 
   std::lock_guard<std::mutex> guard(audio_mutex);
   return (int)sounds->size(); 
 }
 
-bool AudioSystem::init(int freq, int sample_buf_size, OutAudioFormat format,
+bool AudioSystem::init(int freq, int sample_buf_size, 
+                       OutAudioFormat format,
                        MallocFunc custom_malloc,
                        FreeFunc custom_free,
                        ReallocFunc custom_realloc)
@@ -542,8 +626,7 @@ void AudioSystem::removeSound(int idx, float fade_secs)
   PlayingSound &sound = (*sounds)[idx];
   if (fade_secs > 0.0f) {
     sound.state = FadeOutState;
-    sound.fade_time = fade_secs;
-    sound.fade_total = fade_secs;
+    sound.setFadeout(fade_secs);
   } else {
     sound.state = StoppedState;
     // Sound and Stream mix_idx set to -1 in stop
@@ -659,10 +742,11 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
       float rel_y = sound.y;
       float left_vol = sound.volume;
       float right_vol = sound.volume;
-      applyFade(sound, left_vol, right_vol);
+      FadeData fdata = getFade(sound);
 
       // Unlock audio_mutex when done with sound. Must be unlocked
       // before calling soundFinished/streamFinished
+
       if (sound.state == FinishedState) {
         if (sound.tag == SoundType) {
           Sound *s = sound.sound;
@@ -685,14 +769,14 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
       case OutFormat_Float: {
         const int num_samples = total_copied / sizeof(float);
         applyVolume((float*)audio_tmp_buf, num_samples, 
-                    left_vol, right_vol);
+                    left_vol, right_vol, fdata);
         mixStream((float*)stream, (float*)audio_tmp_buf, num_samples);
         break;
       }
       case OutFormat_S16: {
         const int num_samples = total_copied / sizeof(int16_t);
         applyVolume((int16_t*)audio_tmp_buf, num_samples, 
-                    left_vol, right_vol);
+                    left_vol, right_vol, fdata);
         mixStream(audio_mix_buf, (int16_t*)audio_tmp_buf, num_samples);
         break;
       }

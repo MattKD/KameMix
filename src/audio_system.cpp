@@ -41,37 +41,45 @@ enum PlayingState : uint8_t {
 
 struct PlayingSound {
   PlayingSound(Sound *s, int loops, int buf_pos, bool paused, float fade) :
-    sound{s}, buffer_pos{buf_pos}, loop_count{loops},
-    tag{SoundType}, state{ReadyState}
+    sound{s}, buffer_pos{buf_pos}, loop_count{loops}, tag{SoundType}
   { 
     setFadein(fade);
     updateSound();
+    if (paused) {
+      state = PausedState;
+    } else {
+      state = ReadyState;
+    }
   }
 
   PlayingSound(Stream *s, int loops, int buf_pos, bool paused, float fade) :
-    stream{s}, buffer_pos{buf_pos}, loop_count{loops}, fade_total{fade},
-    tag{StreamType}, state{ReadyState}
+    stream{s}, buffer_pos{buf_pos}, loop_count{loops}, tag{StreamType}
   { 
     setFadein(fade);
     updateStream();
+    if (paused) {
+      state = PausedState;
+    } else {
+      state = ReadyState;
+    }
   }
 
   void setFadein(float fade)
   {
-    if (fade < secs_per_callback) {
-      fade_total = secs_per_callback;
-    } else {
+    if (fade == 0.0f || fade > secs_per_callback) {
       fade_total = fade;
+    } else {
+      fade_total = secs_per_callback;
     }
     fade_time = 0.0f;
   }
 
   void setFadeout(float fade)
   {
-    if (fade < secs_per_callback) {
-      fade_total = secs_per_callback;
-    } else {
+    if (fade == 0.0f || fade > secs_per_callback) {
       fade_total = fade;
+    } else {
+      fade_total = secs_per_callback;
     }
     fade_time = fade_total;
   }
@@ -162,11 +170,11 @@ FadeData getFade(PlayingSound &sound)
   if (sound.fade_total > 0.0f) {
     // min fade_total is secs_per_callback, so max fade_delta is 1.0
     const double fade_delta = secs_per_callback / sound.fade_total;
-    // divide audio stream into 20ms chunks
-    const double chunk_secs = 0.02;
+    // divide fade_delta into 2% steps
+    const double delta_step = 0.02;
     FadeData fdata;
     fdata.fade = (double)sound.fade_time / sound.fade_total;
-    fdata.mod_times = (int)(fade_delta / chunk_secs);
+    fdata.mod_times = (int)(fade_delta / delta_step);
     fdata.mod = fade_delta / (fdata.mod_times + 1);
 
     if (sound.state == FadeOutState) {
@@ -620,16 +628,29 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
   stream->mix_idx = (int)sounds->size() - 1;
 }
 
-void AudioSystem::removeSound(int idx, float fade_secs)
+void AudioSystem::removeSound(Sound *sound, int idx, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx];
-  if (fade_secs > 0.0f) {
-    sound.state = FadeOutState;
-    sound.setFadeout(fade_secs);
+  PlayingSound &psound = (*sounds)[idx];
+  if (fade_secs == 0.0f) {
+    psound.state = StoppedState;
+    sound->mix_idx = -1;
   } else {
-    sound.state = StoppedState;
-    // Sound and Stream mix_idx set to -1 in stop
+    psound.state = FadeOutState;
+    psound.setFadeout(fade_secs);
+  }
+}
+
+void AudioSystem::removeStream(Stream *stream, int idx, float fade_secs)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  PlayingSound &psound = (*sounds)[idx];
+  if (fade_secs == 0.0f) {
+    psound.state = StoppedState;
+    stream->mix_idx = -1;
+  } else {
+    psound.state = FadeOutState;
+    psound.setFadeout(fade_secs);
   }
 }
 

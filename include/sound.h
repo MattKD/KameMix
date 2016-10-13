@@ -131,14 +131,13 @@ public:
 
   void stop()
   {
-    fadeout(0.0f);
-    mix_idx = -1;
+    fadeout(0.0f); // removes and sets mix_idx to -1
   }
 
   void fadeout(float fade_secs)
   {
     if (mix_idx != -1) {
-      AudioSystem::removeSound(mix_idx, fade_secs);
+      AudioSystem::removeSound(this, mix_idx, fade_secs);
     }
   }
 

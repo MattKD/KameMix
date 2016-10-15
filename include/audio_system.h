@@ -108,8 +108,10 @@ private:
   static void removeSound(Sound *sound, int idx, float fade_secs);
   static void removeStream(Stream *stream, int idx, float fade_secs);
   static bool isSoundFinished(int idx);
-  static void pauseSound(int idx, bool paused); // does nothing if finished.
-  static bool isSoundPaused(int idx); // returns false if playing or finished.
+  static void pauseSound(int idx); 
+  static void unpauseSound(int idx); 
+  // returns false if playing or finished.
+  static bool isSoundPaused(int idx); 
   static void audioCallback(void *udata, uint8_t *stream, const int len);
 
   static void soundFinished(Sound *sound)

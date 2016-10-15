@@ -38,7 +38,7 @@ public:
     return *this;
   }
 
-  ~Sound() { stop(); }
+  ~Sound() { fadeout(0); }
 
   bool load(const char *filename) { return buffer.load(filename); }
   bool loadOGG(const char *filename) 
@@ -100,7 +100,7 @@ public:
 
   void play(int loops, bool paused = false) 
   {
-    fadein(loops, 0.0f, paused);
+    fadein(loops, -1, paused);
   }
 
   void fadein(int loops, float fade_secs, bool paused = false) 
@@ -113,7 +113,7 @@ public:
 
   void playAt(int loops, double sec, bool paused = false)
   {
-    fadeinAt(loops, sec, 0.0f, paused);
+    fadeinAt(loops, sec, -1, paused);
   }
 
   void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
@@ -131,7 +131,7 @@ public:
 
   void stop()
   {
-    fadeout(0.0f); // removes and sets mix_idx to -1
+    fadeout(-1); // removes and sets mix_idx to -1
   }
 
   void fadeout(float fade_secs)
@@ -146,12 +146,20 @@ public:
     return mix_idx != -1 && AudioSystem::isSoundFinished(mix_idx) == false;
   }
 
-  void setPaused(bool paused)
+  void pause()
   {
     if (mix_idx != -1) {
-      AudioSystem::pauseSound(mix_idx, paused);
+      AudioSystem::pauseSound(mix_idx);
     }
   }
+
+  void unpause()
+  {
+    if (mix_idx != -1) {
+      AudioSystem::unpauseSound(mix_idx);
+    }
+  }
+
 
   bool isPaused() const
   {

@@ -40,7 +40,11 @@ public:
 
   ~Sound() { fadeout(0); }
 
-  bool load(const char *filename) { return buffer.load(filename); }
+  bool load(const char *filename) 
+  { 
+    halt();
+    return buffer.load(filename); 
+  }
   bool loadOGG(const char *filename) 
   { 
     halt();

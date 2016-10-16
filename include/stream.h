@@ -25,7 +25,7 @@ public:
   Stream(const Stream &other) = delete;
   Stream& operator=(const Stream &other) = delete;
 
-  ~Stream() { fadeout(0); }
+  ~Stream() { halt(); }
 
   bool load(const char *filename, double sec = 0.0) 
   { 

@@ -43,6 +43,13 @@ struct VolumeData {
   int mod_times; 
 };
 
+// audio_mutex must be locked when reading/writing PlayingSound to
+// synchronize user calls with audioCallback. reading from sound and
+// stream must only be done in AudioSystem::update which must not be 
+// called concurrently with other KameMix audio functions. SoundBuffer
+// and StreamBuffer though can be read/modified in audioCallback
+// becuase they aren't modified in Sound/Stream while playing (halt()
+// is called before modification).
 struct PlayingSound {
   union {
     Sound *sound;

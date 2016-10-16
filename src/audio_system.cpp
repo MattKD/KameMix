@@ -73,13 +73,17 @@ int audio_tmp_buf_len = 0;
 int32_t *audio_mix_buf = nullptr; // for mixing int16_t audio
 int audio_mix_buf_len = 0;
 std::mutex audio_mutex;
+std::mutex finished_callback_mutex;
 double secs_per_callback = 0.0;
 SoundBuf *sounds = nullptr;
 std::vector<double> *groups;
 double master_volume = 1;
 float listener_x = 0;
 float listener_y = 0;
-
+SoundFinishedFunc sound_finished;
+StreamFinishedFunc stream_finished;
+void *sound_finished_data;
+void *stream_finished_data;
 
 void initPlayingSound_(PlayingSound &ps, int loops, int buf_pos,
                        bool paused, float fade);
@@ -109,6 +113,13 @@ bool streamSwapNeeded(PlayingSound &sound, StreamBuffer &stream_buf) ;
 bool streamSwapBuffers(PlayingSound &sound, StreamBuffer &stream_buf);
 VolumeData getVolumeData(PlayingSound &sound);
 
+void soundFinished(Sound *sound);
+void streamFinished(Stream *stream);
+void applyPosition(double rel_x, double rel_y, VolumeData &vdata);
+void clamp(float *buf, int len);
+void clamp(int16_t *target, int32_t *src, int len);
+template <class T, class U>
+void mixStream(T *target, U *source, int len);
 template <class T>
 void applyVolume(T *stream, int len, double left_vol, double right_vol);
 template <class T>
@@ -123,23 +134,15 @@ int copySound(PlayingSound &sound, SoundBuffer &sound_buf,
               uint8_t *buf, int len);
 int copyStream(PlayingSound &sound, StreamBuffer &stream_buf,
               uint8_t *buf, int len);
-
 template <class T>
 struct CopyMono {
   CopyResult operator()(uint8_t *dst_, int target_len, uint8_t *src_,
                         int src_len);
 };
-
 struct CopyStereo {
   CopyResult operator()(uint8_t *dst, int dst_len, uint8_t *src,
                         int src_len);
 };
-
-template <class T, class U>
-void mixStream(T *target, U *source, int len);
-void applyPosition(double rel_x, double rel_y, VolumeData &vdata);
-void clamp(float *buf, int len);
-void clamp(int16_t *target, int32_t *src, int len);
 
 } // end anon namespace
 
@@ -151,10 +154,6 @@ OutAudioFormat AudioSystem::format;
 MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
-SoundFinishedFunc AudioSystem::sound_finished;
-StreamFinishedFunc AudioSystem::stream_finished;
-void* AudioSystem::sound_finished_data;
-void* AudioSystem::stream_finished_data;
 
 void AudioSystem::setListenerPos(float x, float y)
 {
@@ -208,6 +207,20 @@ int AudioSystem::numberPlaying()
 { 
   std::lock_guard<std::mutex> guard(audio_mutex);
   return (int)sounds->size(); 
+}
+
+void AudioSystem::setSoundFinished(SoundFinishedFunc func, void *udata)
+{
+  std::lock_guard<std::mutex> guard(finished_callback_mutex);
+  sound_finished = func;
+  sound_finished_data = udata;
+}
+
+void AudioSystem::setStreamFinished(StreamFinishedFunc func, void *udata)
+{
+  std::lock_guard<std::mutex> guard(finished_callback_mutex);
+  stream_finished = func;
+  stream_finished_data = udata;
 }
 
 bool AudioSystem::init(int freq, int sample_buf_size, 
@@ -1104,6 +1117,24 @@ void clamp(int16_t *target, int32_t *src, int len)
     } else {
       target[i] = val;
     }
+  }
+}
+
+inline
+void soundFinished(Sound *sound)
+{
+  std::lock_guard<std::mutex> guard(finished_callback_mutex);
+  if (sound_finished) {
+    sound_finished(sound, sound_finished_data);
+  }
+}
+
+inline
+void streamFinished(Stream *stream)
+{
+  std::lock_guard<std::mutex> guard(finished_callback_mutex);
+  if (stream_finished) {
+    stream_finished(stream, stream_finished_data);
   }
 }
 

@@ -68,17 +68,12 @@ public:
   static FreeFunc getFree() { return user_free; }
   static ReallocFunc getRealloc() { return user_realloc; }
 
-  static void setSoundFinished(SoundFinishedFunc func, void *udata)
-  {
-    sound_finished = func;
-    sound_finished_data = udata;
-  }
-
-  static void setStreamFinished(StreamFinishedFunc func, void *udata)
-  {
-    stream_finished = func;
-    stream_finished_data = udata;
-  }
+  // User callbacks to call when a Sound or Stream finishes playing.
+  // All AudioSystem functions are thread safe to use in callbacks besides 
+  // resetting the callbacks. Sound/Stream are NOT thread safe, so the
+  // passed in Sound*/Stream* should not be used to call their methods.
+  static void setSoundFinished(SoundFinishedFunc func, void *udata);
+  static void setStreamFinished(StreamFinishedFunc func, void *udata);
 
   static void setListenerPos(float x, float y);
   static void getListenerPos(float &x, float &y);
@@ -99,30 +94,12 @@ private:
   static bool isSoundPaused(int idx); 
   static void audioCallback(void *udata, uint8_t *stream, const int len);
 
-  static void soundFinished(Sound *sound)
-  {
-    if (sound_finished) {
-      sound_finished(sound, sound_finished_data);
-    }
-  }
-
-  static void streamFinished(Stream *stream)
-  {
-    if (stream_finished) {
-      stream_finished(stream, stream_finished_data);
-    }
-  }
-
   static int channels;
   static int frequency;
   static OutAudioFormat format;
   static MallocFunc user_malloc;
   static FreeFunc user_free;
   static ReallocFunc user_realloc;
-  static SoundFinishedFunc sound_finished;
-  static StreamFinishedFunc stream_finished;
-  static void *sound_finished_data;
-  static void *stream_finished_data;
 
   friend class Sound;
   friend class Stream;

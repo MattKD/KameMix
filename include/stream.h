@@ -29,7 +29,7 @@ public:
 
   bool load(const char *filename, double sec = 0.0) 
   { 
-    stop();
+    halt();
     if (buffer.load(filename, sec)) {
       readMore();
       return true;
@@ -39,7 +39,7 @@ public:
 
   bool loadOGG(const char *filename, double sec = 0.0) 
   { 
-    stop();
+    halt();
     if (buffer.loadOGG(filename, sec)) {
       readMore();
       return true;
@@ -49,7 +49,7 @@ public:
 
   bool loadWAV(const char *filename, double sec = 0.0) 
   { 
-    stop();
+    halt();
     if (buffer.loadWAV(filename, sec)) {
       readMore();
       return true;
@@ -59,7 +59,7 @@ public:
 
   void release() 
   { 
-    stop(); 
+    halt(); 
     buffer.release(); 
   }
 
@@ -98,7 +98,7 @@ public:
   void fadein(int loops, float fade_secs, bool paused = false) 
   {
     if (isLoaded()) {
-      stop();
+      halt();
       // After stop, startPos can be called without lock
       int start_pos = buffer.startPos();
       if (start_pos == -1) { // start not in buffer
@@ -124,7 +124,7 @@ public:
   void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
   {
     if (isLoaded()) {
-      stop();
+      halt();
       if (sec < 0.0 || sec >= buffer.totalTime()) {
         sec = 0.0;
       }
@@ -146,10 +146,8 @@ public:
     }
   }
 
-  void stop()
-  {
-    fadeout(-1); // removes and sets mix_idx to -1
-  }
+  void halt() { fadeout(0); } // instant remove; sets mix_idx to -1 
+  void stop() { fadeout(-1); } // removes with min fade; sets mix_idx to -1 
 
   void fadeout(float fade_secs)
   {

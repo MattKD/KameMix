@@ -26,7 +26,7 @@ public:
   Sound& operator=(const Sound &other)
   {
     if (this != &other) {
-      stop();
+      halt();
       buffer = other.buffer;
       group = other.group;
       volume = other.volume;
@@ -43,17 +43,17 @@ public:
   bool load(const char *filename) { return buffer.load(filename); }
   bool loadOGG(const char *filename) 
   { 
-    stop();
+    halt();
     return buffer.loadOGG(filename); 
   }
   bool loadWAV(const char *filename) 
   { 
-    stop();
+    halt();
     return buffer.loadWAV(filename); 
   }
   void release() 
   { 
-    stop(); 
+    halt(); 
     buffer.release(); 
   }
   bool isLoaded() const { return buffer.isLoaded(); }
@@ -91,7 +91,7 @@ public:
   void fadein(int loops, float fade_secs, bool paused = false) 
   {
     if (buffer.isLoaded()) {
-      stop();
+      halt();
       AudioSystem::addSound(this, loops, 0, paused, fade_secs);
     }
   }
@@ -104,7 +104,7 @@ public:
   void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
   {
     if (buffer.isLoaded()) {
-      stop();
+      halt();
       int sample_pos = (int) (sec * AudioSystem::getFrequency());
       int byte_pos = sample_pos * buffer.sampleBlockSize();
       if (byte_pos < 0 || byte_pos >= buffer.size()) {
@@ -114,10 +114,8 @@ public:
     }
   }
 
-  void stop()
-  {
-    fadeout(-1); // removes and sets mix_idx to -1
-  }
+  void halt() { fadeout(0); } // instant remove; sets mix_idx to -1
+  void stop() { fadeout(-1); } // removes and sets mix_idx to -1 
 
   void fadeout(float fade_secs)
   {

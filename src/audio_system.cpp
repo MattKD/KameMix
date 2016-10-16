@@ -153,6 +153,18 @@ StreamFinishedFunc AudioSystem::stream_finished;
 void* AudioSystem::sound_finished_data;
 void* AudioSystem::stream_finished_data;
 
+double AudioSystem::getMasterVolume()
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  return getMasterVolume_nolock();
+}
+
+void AudioSystem::setMasterVolume(double volume)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  setMasterVolume_nolock(volume);
+}
+
 // May include stopped/finished sounds if called far away from update
 int AudioSystem::numberPlaying() 
 { 
@@ -609,14 +621,16 @@ void unsetFade(PlayingSound &sound)
 inline
 void updateSound(PlayingSound &psound, Sound &sound) 
 {
-  psound.new_volume = sound.getVolumeInGroup();
+  psound.new_volume = sound.getVolumeInGroup() 
+    * AudioSystem::getMasterVolume_nolock();
   sound.getRelativeDistance(psound.x, psound.y);
 }
 
 inline
 void updateStream(PlayingSound &sound, Stream &stream) 
 {
-  sound.new_volume = stream.getVolumeInGroup();
+  sound.new_volume = stream.getVolumeInGroup()
+    * AudioSystem::getMasterVolume_nolock();
   stream.getRelativeDistance(sound.x, sound.y);
 }
 

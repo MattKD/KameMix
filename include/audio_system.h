@@ -62,8 +62,13 @@ public:
 
   // number of sounds playing including paused
   static int numberPlaying(); 
-  static double getMastervolume() { return master_volume; }
-  static void setMasterVolume(double volume) { master_volume = volume; }
+  static double getMasterVolume();
+  static double getMasterVolume_nolock() { return master_volume; }
+  static void setMasterVolume(double volume);
+  static void setMasterVolume_nolock(double volume) 
+  { 
+    master_volume = volume; 
+  }
 
   static int getFrequency() { return frequency; }
   static int getChannels() { return channels; }

@@ -10,18 +10,18 @@ namespace KameMix {
 class DECLSPEC Sound {
 public:
   Sound() : 
-    group{nullptr}, listener{nullptr}, mix_idx{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f} { }
+    group{nullptr}, mix_idx{-1}, volume{1.0f}, 
+    x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
 
   explicit
   Sound(const char *filename) : 
-    buffer(filename), group{nullptr}, listener{nullptr}, mix_idx{-1}, 
-    volume{1.0f}, x{0}, y{0}, max_distance{1.0f} { }
+    buffer(filename), group{nullptr}, mix_idx{-1}, 
+    volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
 
   Sound(const Sound &other) : 
-    buffer(other.buffer), group{other.group}, listener{other.listener}, 
-    mix_idx{-1}, volume{other.volume}, x{other.x}, y{other.y}, 
-    max_distance{other.max_distance} { }
+    buffer(other.buffer), group{other.group}, mix_idx{-1}, 
+    volume{other.volume}, x{other.x}, y{other.y},
+    max_distance{other.max_distance}, use_listener{other.use_listener} { }
 
   Sound& operator=(const Sound &other)
   {
@@ -33,7 +33,7 @@ public:
       x = other.x;
       y = other.y;
       max_distance = other.max_distance;
-      listener = other.listener;
+      use_listener = other.use_listener;
     }
     return *this;
   }
@@ -83,20 +83,11 @@ public:
   float getMaxDistance() const { return max_distance; }
   void setMaxDistance(float distance) { max_distance = distance; }
 
-  void getRelativeDistance(float &x, float &y) const
-  {
-    x = this->x;
-    y = this->y;
-    if (listener) {
-      x = (x - listener->getX()) / getMaxDistance();
-      y = (y - listener->getY()) / getMaxDistance();
-    }
-  }
+  void useListener(bool use_listener_) { use_listener = use_listener_; }
+  bool usingListener() const { return use_listener; }
 
   Group* getGroup() const { return group; }
   void setGroup(Group &group) { this->group = &group; }
-  Listener* getListener() const { return listener; }
-  void setListener(Listener &listener) { this->listener = &listener; }
 
   void play(int loops, bool paused = false) 
   {
@@ -160,7 +151,6 @@ public:
     }
   }
 
-
   bool isPaused() const
   {
     return mix_idx != -1 && AudioSystem::isSoundPaused(mix_idx);
@@ -169,11 +159,11 @@ public:
 private:
   SoundBuffer buffer;
   Group *group;
-  Listener *listener;
   int mix_idx;
   float volume;
   float x, y;
   float max_distance;
+  bool use_listener;
   friend class AudioSystem;
 };
 

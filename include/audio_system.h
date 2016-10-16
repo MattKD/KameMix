@@ -27,18 +27,6 @@ private:
   float volume;
 };
 
-class Listener {
-public:
-  Listener(float x, float y) : x{x}, y{y} { }
-  void setPos(float x_, float y_) { x = x_; y = y_; }
-  void moveBy(float dx, float dy) { x += dx; y += dy; }
-  float getX() const { return x; }
-  float getY() const { return y; }
-
-private:
-  float x, y;
-};
-
 enum OutAudioFormat {
   OutFormat_Float,
   OutFormat_S16
@@ -103,6 +91,19 @@ public:
     stream_finished_data = udata;
   }
 
+  static void setListenerPos(float x, float y);
+  static void setListenerPos_nolock(float x, float y)
+  {
+    listener_x = x;
+    listener_y = y;
+  }
+  static void getListenerPos(float &x, float &y);
+  static void getListenerPos_nolock(float &x, float &y) 
+  { 
+    x = listener_x; 
+    y = listener_y;
+  }
+
   static const int MaxFormatSize = sizeof(float);
 
 private:
@@ -144,6 +145,8 @@ private:
   static StreamFinishedFunc stream_finished;
   static void *sound_finished_data;
   static void *stream_finished_data;
+  static float listener_x;
+  static float listener_y;
 
   friend class Sound;
   friend class Stream;

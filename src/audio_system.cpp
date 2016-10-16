@@ -152,6 +152,20 @@ SoundFinishedFunc AudioSystem::sound_finished;
 StreamFinishedFunc AudioSystem::stream_finished;
 void* AudioSystem::sound_finished_data;
 void* AudioSystem::stream_finished_data;
+float AudioSystem::listener_x = 0;
+float AudioSystem::listener_y = 0;
+
+void AudioSystem::setListenerPos(float x, float y)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  setListenerPos_nolock(x, y); 
+}
+
+void AudioSystem::getListenerPos(float &x, float &y)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  getListenerPos_nolock(x, y); 
+}
 
 double AudioSystem::getMasterVolume()
 {
@@ -618,20 +632,38 @@ void unsetFade(PlayingSound &sound)
   sound.fade_total = sound.fade_time = 0.0f; 
 }
 
+// audio_mutex is locked before calling this
 inline
 void updateSound(PlayingSound &psound, Sound &sound) 
 {
-  psound.new_volume = sound.getVolumeInGroup() 
-    * AudioSystem::getMasterVolume_nolock();
-  sound.getRelativeDistance(psound.x, psound.y);
+  psound.new_volume = (float)(sound.getVolumeInGroup() 
+    * AudioSystem::getMasterVolume_nolock());
+  if (sound.usingListener()) {
+    float lx, ly;
+    AudioSystem::getListenerPos_nolock(lx, ly);
+    psound.x = (sound.getX() - lx) / sound.getMaxDistance();
+    psound.y = (sound.getY() - ly) / sound.getMaxDistance();
+  } else {
+    psound.x = sound.getX();
+    psound.y = sound.getY();
+  }
 }
 
+// audio_mutex is locked before calling this
 inline
 void updateStream(PlayingSound &sound, Stream &stream) 
 {
-  sound.new_volume = stream.getVolumeInGroup()
-    * AudioSystem::getMasterVolume_nolock();
-  stream.getRelativeDistance(sound.x, sound.y);
+  sound.new_volume = (float)(stream.getVolumeInGroup()
+    * AudioSystem::getMasterVolume_nolock());
+  if (stream.usingListener()) {
+    float lx, ly;
+    AudioSystem::getListenerPos_nolock(lx, ly);
+    sound.x = (stream.getX() - lx) / stream.getMaxDistance();
+    sound.y = (stream.getY() - ly) / stream.getMaxDistance();
+  } else {
+    sound.x = stream.getX();
+    sound.y = stream.getY();
+  }
 }
 
 inline

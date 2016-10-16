@@ -12,12 +12,12 @@ class DECLSPEC Stream {
 public:
   Stream() : 
     group{nullptr}, mix_idx{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f}, listener{nullptr} { }
+    x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
 
   explicit
   Stream(const char *filename, double sec = 0.0) : 
     group{nullptr}, mix_idx{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f}, listener{nullptr} 
+    x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
   { 
     load(filename, sec); 
   }
@@ -90,20 +90,11 @@ public:
   float getMaxDistance() const { return max_distance; }
   void setMaxDistance(float distance) { max_distance = distance; }
 
-  void getRelativeDistance(float &x, float &y) const
-  {
-    x = this->x;
-    y = this->y;
-    if (listener) {
-      x = (x - listener->getX()) / getMaxDistance();
-      y = (y - listener->getY()) / getMaxDistance();
-    }
-  }
+  void useListener(bool use_listener_) { use_listener = use_listener_; }
+  bool usingListener() const { return use_listener; }
 
   Group* getGroup() const { return group; }
   void setGroup(Group &group) { this->group = &group; }
-  Listener* getListener() const { return listener; }
-  void setListener(Listener &listener) { this->listener = &listener; }
 
   void play(int loops, bool paused = false)
   {
@@ -211,7 +202,7 @@ private:
   float volume;
   float x, y;
   float max_distance;
-  Listener *listener;
+  bool use_listener;
   friend class AudioSystem;
 };
 

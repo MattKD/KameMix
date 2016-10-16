@@ -106,9 +106,7 @@ public:
         if (!buffer.setPos(0.0, true)) { 
           return;
         }
-        StreamBuffer &buf = buffer;
-        std::thread thrd([buf]() mutable { buf.readMore(); }); 
-        thrd.detach();
+        readMore(); 
         start_pos = 0;
       }
 
@@ -136,9 +134,7 @@ public:
           return;
         }
 
-        StreamBuffer &buf = buffer;
-        std::thread thrd([buf]() mutable { buf.readMore(); }); 
-        thrd.detach();
+        readMore();
         byte_pos = 0;
       }
 

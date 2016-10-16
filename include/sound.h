@@ -10,12 +10,12 @@ namespace KameMix {
 class DECLSPEC Sound {
 public:
   Sound() : 
-    group{nullptr}, mix_idx{-1}, volume{1.0f}, 
+    group{-1}, mix_idx{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
 
   explicit
   Sound(const char *filename) : 
-    buffer(filename), group{nullptr}, mix_idx{-1}, 
+    buffer(filename), group{-1}, mix_idx{-1}, 
     volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
 
   Sound(const Sound &other) : 
@@ -60,13 +60,6 @@ public:
 
   float getVolume() const { return volume; }
   void setVolume(float v) { volume = v; }
-  float getVolumeInGroup() const
-  {
-    if (group) {
-      return group->getVolume() * volume;
-    }
-    return volume;
-  }
 
   float getX() const { return x; }
   float getY() const { return y; }
@@ -86,8 +79,8 @@ public:
   void useListener(bool use_listener_) { use_listener = use_listener_; }
   bool usingListener() const { return use_listener; }
 
-  Group* getGroup() const { return group; }
-  void setGroup(Group &group) { this->group = &group; }
+  int getGroup() const { return group; }
+  void setGroup(int group_) { group = group_; }
 
   void play(int loops, bool paused = false) 
   {
@@ -158,7 +151,7 @@ public:
 
 private:
   SoundBuffer buffer;
-  Group *group;
+  int group;
   int mix_idx;
   float volume;
   float x, y;

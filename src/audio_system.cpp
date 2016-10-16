@@ -75,6 +75,7 @@ int audio_mix_buf_len = 0;
 std::mutex audio_mutex;
 double secs_per_callback = 0.0;
 SoundBuf *sounds = nullptr;
+std::vector<double> *groups;
 
 
 void initPlayingSound_(PlayingSound &ps, int loops, int buf_pos,
@@ -179,6 +180,27 @@ void AudioSystem::setMasterVolume(double volume)
   setMasterVolume_nolock(volume);
 }
 
+int AudioSystem::createGroup()
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  groups->push_back(1);
+  return groups->size() - 1;
+}
+
+void AudioSystem::setGroupVolume(int group, double volume)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  assert(group >= 0 && group < (int)groups->size());
+  (*groups)[group] = volume;
+}
+
+double AudioSystem::getGroupVolume(int group)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  assert(group >= 0 && group < (int)groups->size());
+  return (*groups)[group];
+}
+
 // May include stopped/finished sounds if called far away from update
 int AudioSystem::numberPlaying() 
 { 
@@ -244,6 +266,8 @@ bool AudioSystem::init(int freq, int sample_buf_size,
   sounds = km_new<SoundBuf>();
   sounds->reserve(256);
 
+  groups = km_new<std::vector<double>>();
+
   SDL_PauseAudioDevice(dev_id, 0);
   return true;
 }
@@ -268,6 +292,7 @@ void AudioSystem::shutdown()
   audio_mix_buf = nullptr;
   audio_mix_buf_len = 0;
   km_delete(sounds);
+  km_delete(groups);
   sounds = nullptr;
 }
 
@@ -636,8 +661,13 @@ void unsetFade(PlayingSound &sound)
 inline
 void updateSound(PlayingSound &psound, Sound &sound) 
 {
-  psound.new_volume = (float)(sound.getVolumeInGroup() 
+  psound.new_volume = (float)(sound.getVolume() 
     * AudioSystem::getMasterVolume_nolock());
+  int group = sound.getGroup();
+  if (group >= 0) {
+    psound.new_volume *= (float)(*groups)[group];
+  }
+
   if (sound.usingListener()) {
     float lx, ly;
     AudioSystem::getListenerPos_nolock(lx, ly);
@@ -653,8 +683,13 @@ void updateSound(PlayingSound &psound, Sound &sound)
 inline
 void updateStream(PlayingSound &sound, Stream &stream) 
 {
-  sound.new_volume = (float)(stream.getVolumeInGroup()
+  sound.new_volume = (float)(stream.getVolume()
     * AudioSystem::getMasterVolume_nolock());
+  int group = stream.getGroup();
+  if (group >= 0) {
+    sound.new_volume *= (float)(*groups)[group];
+  }
+
   if (stream.usingListener()) {
     float lx, ly;
     AudioSystem::getListenerPos_nolock(lx, ly);

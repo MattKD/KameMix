@@ -17,16 +17,6 @@ typedef void* (*ReallocFunc)(void *ptr, size_t len);
 typedef void (*SoundFinishedFunc) (Sound *sound, void *udata);
 typedef void (*StreamFinishedFunc) (Stream *stream, void *udata);
 
-class Group {
-public:
-  Group(float volume = 1.0f) : volume{volume} { }
-  float getVolume() const { return volume; }
-  void setVolume(float v) { volume = v; }
-
-private:
-  float volume;
-};
-
 enum OutAudioFormat {
   OutFormat_Float,
   OutFormat_S16
@@ -57,6 +47,10 @@ public:
   { 
     master_volume = volume; 
   }
+
+  static int createGroup();
+  static void setGroupVolume(int group, double volume);
+  static double getGroupVolume(int group);
 
   static int getFrequency() { return frequency; }
   static int getChannels() { return channels; }

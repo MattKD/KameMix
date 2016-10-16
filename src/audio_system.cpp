@@ -76,6 +76,9 @@ std::mutex audio_mutex;
 double secs_per_callback = 0.0;
 SoundBuf *sounds = nullptr;
 std::vector<double> *groups;
+double master_volume = 1;
+float listener_x = 0;
+float listener_y = 0;
 
 
 void initPlayingSound_(PlayingSound &ps, int loops, int buf_pos,
@@ -145,7 +148,6 @@ namespace KameMix {
 int AudioSystem::channels;
 int AudioSystem::frequency;
 OutAudioFormat AudioSystem::format;
-double AudioSystem::master_volume = 1.0;
 MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
@@ -153,31 +155,31 @@ SoundFinishedFunc AudioSystem::sound_finished;
 StreamFinishedFunc AudioSystem::stream_finished;
 void* AudioSystem::sound_finished_data;
 void* AudioSystem::stream_finished_data;
-float AudioSystem::listener_x = 0;
-float AudioSystem::listener_y = 0;
 
 void AudioSystem::setListenerPos(float x, float y)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  setListenerPos_nolock(x, y); 
+  listener_x = x;
+  listener_y = y;
 }
 
 void AudioSystem::getListenerPos(float &x, float &y)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  getListenerPos_nolock(x, y); 
+  x = listener_x;
+  y = listener_y;
 }
 
 double AudioSystem::getMasterVolume()
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  return getMasterVolume_nolock();
+  return master_volume;
 }
 
 void AudioSystem::setMasterVolume(double volume)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  setMasterVolume_nolock(volume);
+  master_volume = volume;
 }
 
 int AudioSystem::createGroup()
@@ -247,7 +249,6 @@ bool AudioSystem::init(int freq, int sample_buf_size,
 
   AudioSystem::frequency = dev_spec.freq;
   AudioSystem::channels = dev_spec.channels;
-  AudioSystem::master_volume = 1.0f;
 
   // AudioSystem::format must have alread been set above
   audio_tmp_buf_len = 
@@ -261,11 +262,13 @@ bool AudioSystem::init(int freq, int sample_buf_size,
       (int32_t*)km_malloc(audio_mix_buf_len * sizeof(int32_t));
   }
 
+  master_volume = 1.0f;
+  listener_x = 0;
+  listener_y = 0;
   secs_per_callback = (double)dev_spec.samples / AudioSystem::frequency;
 
   sounds = km_new<SoundBuf>();
   sounds->reserve(256);
-
   groups = km_new<std::vector<double>>();
 
   SDL_PauseAudioDevice(dev_id, 0);
@@ -661,18 +664,15 @@ void unsetFade(PlayingSound &sound)
 inline
 void updateSound(PlayingSound &psound, Sound &sound) 
 {
-  psound.new_volume = (float)(sound.getVolume() 
-    * AudioSystem::getMasterVolume_nolock());
+  psound.new_volume = (float)(sound.getVolume() * master_volume);
   int group = sound.getGroup();
   if (group >= 0) {
     psound.new_volume *= (float)(*groups)[group];
   }
 
   if (sound.usingListener()) {
-    float lx, ly;
-    AudioSystem::getListenerPos_nolock(lx, ly);
-    psound.x = (sound.getX() - lx) / sound.getMaxDistance();
-    psound.y = (sound.getY() - ly) / sound.getMaxDistance();
+    psound.x = (sound.getX() - listener_x) / sound.getMaxDistance();
+    psound.y = (sound.getY() - listener_y) / sound.getMaxDistance();
   } else {
     psound.x = sound.getX();
     psound.y = sound.getY();
@@ -683,18 +683,15 @@ void updateSound(PlayingSound &psound, Sound &sound)
 inline
 void updateStream(PlayingSound &sound, Stream &stream) 
 {
-  sound.new_volume = (float)(stream.getVolume()
-    * AudioSystem::getMasterVolume_nolock());
+  sound.new_volume = (float)(stream.getVolume() * master_volume);
   int group = stream.getGroup();
   if (group >= 0) {
     sound.new_volume *= (float)(*groups)[group];
   }
 
   if (stream.usingListener()) {
-    float lx, ly;
-    AudioSystem::getListenerPos_nolock(lx, ly);
-    sound.x = (stream.getX() - lx) / stream.getMaxDistance();
-    sound.y = (stream.getY() - ly) / stream.getMaxDistance();
+    sound.x = (stream.getX() - listener_x) / stream.getMaxDistance();
+    sound.y = (stream.getY() - listener_y) / stream.getMaxDistance();
   } else {
     sound.x = stream.getX();
     sound.y = stream.getY();

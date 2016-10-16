@@ -41,12 +41,7 @@ public:
   // number of sounds playing including paused
   static int numberPlaying(); 
   static double getMasterVolume();
-  static double getMasterVolume_nolock() { return master_volume; }
   static void setMasterVolume(double volume);
-  static void setMasterVolume_nolock(double volume) 
-  { 
-    master_volume = volume; 
-  }
 
   static int createGroup();
   static void setGroupVolume(int group, double volume);
@@ -86,17 +81,7 @@ public:
   }
 
   static void setListenerPos(float x, float y);
-  static void setListenerPos_nolock(float x, float y)
-  {
-    listener_x = x;
-    listener_y = y;
-  }
   static void getListenerPos(float &x, float &y);
-  static void getListenerPos_nolock(float &x, float &y) 
-  { 
-    x = listener_x; 
-    y = listener_y;
-  }
 
   static const int MaxFormatSize = sizeof(float);
 
@@ -131,7 +116,6 @@ private:
   static int channels;
   static int frequency;
   static OutAudioFormat format;
-  static double master_volume;
   static MallocFunc user_malloc;
   static FreeFunc user_free;
   static ReallocFunc user_realloc;
@@ -139,8 +123,6 @@ private:
   static StreamFinishedFunc stream_finished;
   static void *sound_finished_data;
   static void *stream_finished_data;
-  static float listener_x;
-  static float listener_y;
 
   friend class Sound;
   friend class Stream;

@@ -17,15 +17,6 @@ using namespace KameMix;
 
 namespace {
 
-SDL_AudioDeviceID dev_id;
-// for copying sound/stream data before mixing
-uint8_t *audio_tmp_buf = nullptr; 
-int audio_tmp_buf_len = 0;
-int32_t *audio_mix_buf = nullptr; // for mixing int16_t audio
-int audio_mix_buf_len = 0;
-std::mutex audio_mutex;
-float secs_per_callback = 0.0f;
-
 enum PlayingType : uint8_t {
   SoundType,
   StreamType
@@ -40,7 +31,9 @@ enum PlayState : uint8_t {
   UnpausingState
 };
 
-struct FadeData {
+struct VolumeData {
+  double left_volume;
+  double right_volume;
   double fade; // fade_percent
   // increment/decrement to add to fade each time after applying fade to 
   // audio stream 
@@ -51,101 +44,6 @@ struct FadeData {
 };
 
 struct PlayingSound {
-  PlayingSound(Sound *s, int loops, int buf_pos, bool paused, float fade) :
-    sound{s}, buffer_pos{buf_pos}, loop_count{loops}, tag{SoundType}
-  { 
-    setFadein(fade);
-    updateSound();
-    volume = new_volume;
-    if (paused) {
-      state = PausedState;
-    } else {
-      state = PlayingState;
-    }
-  }
-
-  PlayingSound(Stream *s, int loops, int buf_pos, bool paused, float fade) :
-    stream{s}, buffer_pos{buf_pos}, loop_count{loops}, tag{StreamType}
-  { 
-    setFadein(fade);
-    updateStream();
-    volume = new_volume;
-    if (paused) {
-      state = PausedState;
-    } else {
-      state = PlayingState;
-    }
-  }
-
-  bool isPlaying() const { return state == PlayingState; }
-  bool isFinished() const { return state == FinishedState; }
-  bool isStopped() const { return state == StoppedState; }
-  bool isPaused() const { return state == PausedState; }
-  bool isPausing() const { return state == PausingState; }
-  bool isUnpausing() const  { return state == UnpausingState; }
-  bool isFadeNeeded() const {
-    return isFading() || isVolumeChanging() || isPauseChanging();
-  }
-  bool isFading() const { return fade_total != 0.0f; }
-  bool isFadingIn() const { return fade_total > 0.0f; }
-  bool isFadingOut() const { return fade_total < 0.0f; }
-  bool isPauseChanging() const { return isPausing() || isUnpausing(); }
-  bool isVolumeChanging() const { return volume != new_volume; }
-
-  void setFadein(float fade) {
-    if (fade == 0.0f) {
-      fade_total = 0.0f;
-    } else if (fade > secs_per_callback) {
-      fade_total = fade;
-    } else {
-      fade_total = secs_per_callback;
-    }
-    fade_time = 0.0f;
-  }
-
-  // set fade_total to negative for fadeout
-  void setFadeout(float fade) {
-    if (fade == 0.0f) {
-      fade_total = 0.0f;
-      fade_time = 0.0f;
-      return;
-    } 
-    if (fade > secs_per_callback) {
-      fade_total = -fade;
-      fade_time = fade; 
-    } else {
-      fade_total = -secs_per_callback;
-      fade_time = secs_per_callback; 
-    }
-  }
-
-  void unsetFade() { fade_total = fade_time = 0.0f; }
-  FadeData getFade();
-
-  void updateSound() {
-    new_volume = sound->getVolumeInGroup();
-    sound->getRelativeDistance(x, y);
-  }
-
-  void updateStream() {
-    new_volume = stream->getVolumeInGroup();
-    stream->getRelativeDistance(x, y);
-  }
-
-  void decrementLoopCount() {
-    if (loop_count == 0) {
-      state = FinishedState;
-    } else if (loop_count > 0) {
-      --loop_count;
-    }
-  }
-
-  bool streamSwapNeeded(StreamBuffer &stream_buf) {
-    return buffer_pos == stream_buf.size();
-  }
-
-  bool streamSwapBuffers(StreamBuffer &stream_buf);
-
   union {
     Sound *sound;
     Stream *stream;
@@ -161,398 +59,83 @@ struct PlayingSound {
   PlayState state;
 };
 
-bool PlayingSound::streamSwapBuffers(StreamBuffer &stream_buf)
-{
-  StreamResult result = stream_buf.swapBuffers();
-  if (result == StreamReady) {
-    if (stream_buf.endPos() == 0) { // EOF seen immediately on read
-      decrementLoopCount();
-    }
-    buffer_pos = 0;
-    if (!stream_buf.fullyBuffered()) {
-      std::thread thrd([stream_buf]() mutable { stream_buf.readMore(); }); 
-      thrd.detach();
-    }
-    return true;
-  } else if (result == StreamError) {
-    state = FinishedState; 
-  } else {
-    assert(result != StreamNoData); // readMore never called
-    buffer_pos = stream_buf.size();
-  }
-  return false;
-}
-
-
-FadeData PlayingSound::getFade()
-{
-  if (isFadeNeeded()) {
-    double start_fade = 1.0;
-    double end_fade = 1.0;
-    bool adjust_fade_time = false;
-
-    if (isFadingIn()) {
-      start_fade = (double)fade_time / fade_total;
-      end_fade = ((double)fade_time + secs_per_callback) / fade_total;
-      adjust_fade_time = true;
-    } else if (isFadingOut()) { // fade_total is negative in fadeout
-      start_fade = (double)fade_time / -fade_total;
-      end_fade = ((double)fade_time - secs_per_callback) / -fade_total;
-      adjust_fade_time = true;
-    }
-
-    if (isVolumeChanging()) {
-      end_fade *= (double)new_volume / volume;
-    }
-
-    if (isPausing()) {
-      end_fade = 0.0;
-      adjust_fade_time = false;
-      state = PausedState;
-    } else if (isUnpausing()) {
-      start_fade = 0.0;
-      adjust_fade_time = false;
-      state = PlayingState;
-    }
-
-    FadeData fdata;
-    fdata.fade = start_fade;
-    const double fade_delta = end_fade - start_fade;
-    // divide fade_delta into 2% steps
-    const double delta_step = 0.02;
-    fdata.mod_times = (int)std::abs(fade_delta / delta_step);
-    fdata.mod = fade_delta / (fdata.mod_times + 1);
-
-    if (adjust_fade_time) {
-      if (isFadingOut()) {
-        fade_time -= secs_per_callback;
-        if (fade_time <= 0.0f) {
-          // Finished not Stopped state, so mix_idx is unset in update
-          state = FinishedState; 
-          unsetFade();
-        }
-      } else {
-        fade_time += secs_per_callback;
-        if (fade_time >= fade_total) {
-          unsetFade();
-        }
-      }
-    }
-
-    return fdata;
-  } else {
-    FadeData fdata;
-    fdata.fade = 1.0;
-    fdata.mod = 0.0;
-    fdata.mod_times = 0;
-    return fdata;
-  }
-}
-
-typedef std::vector<PlayingSound, Alloc<PlayingSound>> SoundBuf;
-
-SoundBuf *sounds = nullptr;
-
-template <class T>
-void applyVolume(T *stream, int len, double left_vol, double right_vol)
-{
-  for (int i = 0; i < len; i += 2) {
-    stream[i] = (T)(stream[i] * left_vol);
-    stream[i+1] = (T)(stream[i+1] * right_vol);
-  }
-}
-
-// len_ must be even because stream is stereo
-template <class T>
-void applyVolume(T *stream, int len_, double left_vol_, double right_vol_,
-                 const FadeData &fdata)
-{
-  double fade = fdata.fade;
-  int pos = 0;
-  // make sure len is even after dividing by mod_times+1
-  int len = (len_ / 2) / (fdata.mod_times + 1) * 2;
-
-  for (int i = 0; i < fdata.mod_times; ++i) {
-    double left_vol = left_vol_ * fade;
-    double right_vol = right_vol_ * fade;
-    applyVolume(stream+pos, len, left_vol, right_vol);
-    pos += len;
-    fade += fdata.mod;
-    if (fade > 1.0) {
-      fade = 1.0;
-    } else if (fade < 0.0) {
-      fade = 0.0;
-    }
-  }
-
-  double left_vol = left_vol_ * fade;
-  double right_vol = right_vol_ * fade;
-  // len*(fdata.mod_times+1) can be less than len_, so make sure to
-  // include all last samples
-  len = len_ - pos;
-  applyVolume(stream+pos, len, left_vol, right_vol);
-}
-
 struct CopyResult {
   int target_amount;
   int src_amount;
 };
 
+typedef std::vector<PlayingSound, Alloc<PlayingSound>> SoundBuf;
+
+SDL_AudioDeviceID dev_id;
+// for copying sound/stream data before mixing
+uint8_t *audio_tmp_buf = nullptr; 
+int audio_tmp_buf_len = 0;
+int32_t *audio_mix_buf = nullptr; // for mixing int16_t audio
+int audio_mix_buf_len = 0;
+std::mutex audio_mutex;
+double secs_per_callback = 0.0;
+SoundBuf *sounds = nullptr;
+
+
+void initPlayingSound_(PlayingSound &ps, int loops, int buf_pos,
+                       bool paused, float fade);
+PlayingSound makePlayingSound(Sound *s, int loops, int buf_pos, 
+                              bool paused, float fade); 
+PlayingSound makePlayingSound(Stream *s, int loops, int buf_pos, 
+                              bool paused, float fade); 
+bool isPlaying(const PlayingSound &s);
+bool isFinished(const PlayingSound &s); 
+bool isStopped(const PlayingSound &s); 
+bool isPaused(const PlayingSound &s);
+bool isPausing(const PlayingSound &s);
+bool isUnpausing(const PlayingSound &s);
+bool isFadeNeeded(const PlayingSound &s);
+bool isFading(const PlayingSound &s);
+bool isFadingIn(const PlayingSound &s);
+bool isFadingOut(const PlayingSound &s);
+bool isPauseChanging(const PlayingSound &s);
+bool isVolumeChanging(const PlayingSound &s);
+void setFadein(PlayingSound &sound, float fade);
+void setFadeout(PlayingSound &sound, float fade);
+void unsetFade(PlayingSound &sound); 
+void updateSound(PlayingSound &psound, Sound &sound); 
+void updateStream(PlayingSound &sound, Stream &stream); 
+void decrementLoopCount(PlayingSound &sound);
+bool streamSwapNeeded(PlayingSound &sound, StreamBuffer &stream_buf) ;
+bool streamSwapBuffers(PlayingSound &sound, StreamBuffer &stream_buf);
+VolumeData getVolumeData(PlayingSound &sound);
+
+template <class T>
+void applyVolume(T *stream, int len, double left_vol, double right_vol);
+template <class T>
+void applyVolume(T *stream, int len_, const VolumeData &vdata);
 template <class CopyFunc>
 int copySound(CopyFunc copy, uint8_t *buffer, const int buf_len, 
-              PlayingSound &sound, SoundBuffer &sound_buf)
-{
-  int buf_left = buf_len;
-  int total_copied = 0;
-
-  while (true) {
-    // FinishedState from decrementLoopCount
-    if (sound.isFinished()) { 
-      break;
-    }
-
-    int src_left = sound_buf.size() - sound.buffer_pos;
-    CopyResult cpy_amount = 
-      copy(buffer + total_copied, buf_left, 
-           sound_buf.data() + sound.buffer_pos, src_left);
-                                  
-    total_copied += cpy_amount.target_amount;
-
-    // didn't reach end of sound buffer
-    if (cpy_amount.src_amount < src_left) { 
-      sound.buffer_pos += cpy_amount.src_amount;
-      break;
-    } else {
-      // reached end of sound
-      sound.decrementLoopCount();
-      sound.buffer_pos = 0;
-      buf_left -= cpy_amount.target_amount;
-    } 
-  }
-
-  return total_copied;
-}
-
+              PlayingSound &sound, SoundBuffer &sound_buf);
 template <class CopyFunc>
 int copyStream(CopyFunc copy, uint8_t *buffer, const int buf_len, 
-               PlayingSound &stream, StreamBuffer &stream_buf)
-{
-  int buf_left = buf_len;
-  int total_copied = 0; 
-
-  while (true) {
-    // FinishedState from decrementLoopCount or on error advancing
-    if (stream.isFinished()) { 
-      break;
-    }
-
-    int end_pos = stream_buf.endPos(); // -1 if not in buffer
-    int src_left;
-    if (end_pos <= stream.buffer_pos) {
-      src_left = stream_buf.size() - stream.buffer_pos;
-    } else {
-      src_left = end_pos - stream.buffer_pos;
-    }
-    //int cpy_amount = buf_left < src_left ? buf_left : src_left;
-
-    CopyResult cpy_amount = 
-      copy(buffer + total_copied, buf_left, 
-           stream_buf.data() + stream.buffer_pos, src_left);
-
-    total_copied += cpy_amount.target_amount;
-    buf_left -= cpy_amount.target_amount;
-      
-    // didn't reach end of stream or its main buffer
-    if (cpy_amount.src_amount < src_left) { 
-      stream.buffer_pos += cpy_amount.src_amount;
-      break;
-    // reached end of buffer
-    } else if (stream.buffer_pos + cpy_amount.src_amount 
-               == stream_buf.size()) { 
-      if (end_pos == stream_buf.size()) { // end of stream at end of buffer
-        // buffer_pos may be at end from last time and failed to swap buffers
-        if (cpy_amount.target_amount > 0) { 
-          stream.decrementLoopCount();
-        }
-      }
-
-      if (!stream.streamSwapBuffers(stream_buf)) {
-        break;
-      }
-    } else { // end of stream and not end of buffer
-      stream.buffer_pos = end_pos;
-      stream.decrementLoopCount();
-    }
-  }
-
-  return total_copied;
-}
+               PlayingSound &stream, StreamBuffer &stream_buf);
+int copySound(PlayingSound &sound, SoundBuffer &sound_buf, 
+              uint8_t *buf, int len);
+int copyStream(PlayingSound &sound, StreamBuffer &stream_buf,
+              uint8_t *buf, int len);
 
 template <class T>
 struct CopyMono {
   CopyResult operator()(uint8_t *dst_, int target_len, uint8_t *src_,
-                        int src_len)
-  {
-    int half_target_left = target_len / 2;
-    int half_cpy_amount = half_target_left < src_len ? 
-                          half_target_left : src_len;
-
-    const int len = half_cpy_amount / sizeof(T);
-    T *src = (T*)src_; 
-    T *src_end = src + len; 
-    T *dst = (T*)dst_;
-    while (src != src_end) {
-      const T val = *src++;
-      dst[0] = val;
-      dst[1] = val;
-      dst += 2;
-    }
-
-    CopyResult result = { half_cpy_amount * 2, half_cpy_amount };
-    return result;
-  }
+                        int src_len);
 };
 
 struct CopyStereo {
   CopyResult operator()(uint8_t *dst, int dst_len, uint8_t *src,
-                        int src_len)
-  {
-    int cpy_amount = dst_len < src_len ? dst_len : src_len;
-    memcpy(dst, src, cpy_amount);
-
-    CopyResult result = { cpy_amount, cpy_amount };
-    return result;
-  }
+                        int src_len);
 };
 
-int copySound(PlayingSound &sound, SoundBuffer &sound_buf, 
-              uint8_t *buf, int len)
-{
-  if (sound_buf.numChannels() == 1) {
-    switch (AudioSystem::getFormat()) {
-    case OutFormat_Float:
-      return copySound(CopyMono<float>(), buf, len, sound, sound_buf);
-      break;
-    case OutFormat_S16:
-      return copySound(CopyMono<int16_t>(), buf, len, sound, sound_buf);
-      break;
-    }
-    assert("Invalid Output Format");
-    return -1;
-  } else {
-    return copySound(CopyStereo(), buf, len, sound, sound_buf);
-  }
-}
-
-int copyStream(PlayingSound &sound, StreamBuffer &stream_buf,
-              uint8_t *buf, int len)
-{
-  if (stream_buf.numChannels() == 1) {
-    switch (AudioSystem::getFormat()) {
-    case OutFormat_Float:
-      return copyStream(CopyMono<float>(), buf, len, sound, stream_buf);
-      break;
-    case OutFormat_S16:
-      return copyStream(CopyMono<int16_t>(), buf, len, sound, stream_buf);
-      break;
-    }
-    assert("Invalid Output Format");
-    return -1;
-  } else {
-    return  copyStream(CopyStereo(), buf, len, sound, stream_buf);
-  }
-}
-
 template <class T, class U>
-void mixStream(T *target, U *source, int len) 
-{
-  for (int i = 0; i < len; ++i) {
-    target[i] += source[i];
-  }
-}
-
-// Modify left and right channel volume by position. Doesn't change if 
-// sound.x and sound.y == 0.
-// left_vol and right_vol must be initialized before calling.
-void applyPosition(float rel_x, float rel_y, float &left_vol, float &right_vol)
-{
-  if (rel_x == 0 && rel_y == 0) {
-    return;
-  }
-
-  float distance = sqrt(rel_x * rel_x + rel_y * rel_y);
-
-  if (distance >= 1.0f) {
-    left_vol = right_vol = 0.0f;
-  } else {
-    // Sound's volume on left and right speakers vary between 
-    // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
-    // directly in front or behind listener. With max_mod = 0.3, this is 
-    // 1.0 to 0.54 and 0.77 in front and back.
-    const float max_mod = 0.3f;
-    const float base = 1/(1.0f+max_mod) * (1.0f - distance);
-    left_vol *= base;
-    right_vol *= base;
-    float left_mod = 1.0f;
-    float right_mod = 1.0f;
-
-    if (rel_x != 0.0f) { // not 90 or 270 degrees
-      float rads = atan(rel_y / rel_x);
-      if (rel_y >= 0.0f) { // quadrant 1 and 2
-        if (rel_x > 0.0f) { // quadrant 1
-          float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f - mod;
-          right_mod = 1.0f + mod;
-        } else if (rel_x < 0.0f) { // quadrant 2
-          float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f + mod;
-          right_mod = 1.0f - mod;
-        }
-      } else { // quadrants 3 and 4
-         if (rel_x < 0.0f) { // quadrant 3
-          float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f + mod;
-          right_mod = 1.0f - mod;
-        } else if (rel_x > 0.0f) { // quadrant 4
-          float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f - mod;
-          right_mod = 1.0f + mod;
-        }
-      }
-
-      left_vol *= left_mod;
-      right_vol *= right_mod;
-    } // end sound.x != 0
-  } // end distance < 1.0
-}
-
-void clamp(float *buf, int len)
-{
-  for (int i = 0; i < len; ++i) {
-    float val = buf[i];
-    if (val > 1.0f) {
-      buf[i] = 1.0f;
-    } else if (val < -1.0f) {
-      buf[i] = -1.0f;
-    }
-  }
-}
-
-void clamp(int16_t *target, int32_t *src, int len)
-{
-  const int32_t max_val = std::numeric_limits<int16_t>::max();
-  const int32_t min_val = std::numeric_limits<int16_t>::min();
-  for (int i = 0; i < len; ++i) {
-    int32_t val = src[i];
-    if (val > max_val) {
-      target[i] = max_val;
-    } else if (val < min_val) {
-      target[i] = min_val;
-    } else {
-      target[i] = val;
-    }
-  }
-}
+void mixStream(T *target, U *source, int len);
+void applyPosition(double rel_x, double rel_y, VolumeData &vdata);
+void clamp(float *buf, int len);
+void clamp(int16_t *target, int32_t *src, int len);
 
 } // end anon namespace
 
@@ -561,7 +144,7 @@ namespace KameMix {
 int AudioSystem::channels;
 int AudioSystem::frequency;
 OutAudioFormat AudioSystem::format;
-float AudioSystem::master_volume = 1.0f;
+double AudioSystem::master_volume = 1.0;
 MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
@@ -630,8 +213,7 @@ bool AudioSystem::init(int freq, int sample_buf_size,
       (int32_t*)km_malloc(audio_mix_buf_len * sizeof(int32_t));
   }
 
-  secs_per_callback = 
-    (float)dev_spec.samples / (float)AudioSystem::frequency;
+  secs_per_callback = (double)dev_spec.samples / AudioSystem::frequency;
 
   sounds = km_new<SoundBuf>();
   sounds->reserve(256);
@@ -667,7 +249,7 @@ void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
                            float fade)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  sounds->push_back(PlayingSound(sound, loops, pos, paused, fade));
+  sounds->push_back(makePlayingSound(sound, loops, pos, paused, fade));
   sound->mix_idx = (int)sounds->size() - 1;
 }
 
@@ -675,7 +257,7 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
                             float fade)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  sounds->push_back(PlayingSound(stream, loops, pos, paused, fade));
+  sounds->push_back(makePlayingSound(stream, loops, pos, paused, fade));
   stream->mix_idx = (int)sounds->size() - 1;
 }
 
@@ -687,7 +269,7 @@ void AudioSystem::removeSound(Sound *sound, int idx, float fade_secs)
     psound.state = StoppedState;
     sound->mix_idx = -1;
   } else {
-    psound.setFadeout(fade_secs);
+    setFadeout(psound, fade_secs);
   }
 }
 
@@ -699,23 +281,23 @@ void AudioSystem::removeStream(Stream *stream, int idx, float fade_secs)
     psound.state = StoppedState;
     stream->mix_idx = -1;
   } else {
-    psound.setFadeout(fade_secs);
+    setFadeout(psound, fade_secs);
   }
 }
 
 bool AudioSystem::isSoundFinished(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  return (*sounds)[idx].isFinished();
+  return isFinished((*sounds)[idx]);
 }
 
 void AudioSystem::pauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   PlayingSound &sound = (*sounds)[idx];
-  if (sound.isPlaying()) { 
+  if (isPlaying(sound)) { 
     sound.state = PausingState;
-  } else if (sound.isUnpausing()) {
+  } else if (isUnpausing(sound)) {
     sound.state = PausedState;
   }
 }
@@ -724,9 +306,9 @@ void AudioSystem::unpauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   PlayingSound &sound = (*sounds)[idx];
-  if (sound.isPaused()) { 
+  if (isPaused(sound)) { 
     sound.state = UnpausingState;
-  } else if (sound.isPausing()) {
+  } else if (isPausing(sound)) {
     sound.state = PlayingState;
   }
 }
@@ -735,7 +317,7 @@ bool AudioSystem::isSoundPaused(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   PlayingSound &sound = (*sounds)[idx];
-  return sound.isPaused() || sound.isPausing(); 
+  return isPaused(sound) || isPausing(sound); 
 }
 
 void AudioSystem::update()
@@ -743,28 +325,29 @@ void AudioSystem::update()
   SDL_LockAudioDevice(dev_id);
   std::lock_guard<std::mutex> guard(audio_mutex);
 
-  auto sound = sounds->begin();
+  auto sound_iter = sounds->begin();
   auto sound_end = sounds->end();
-  while (sound != sound_end) {
+  while (sound_iter != sound_end) {
+    PlayingSound &sound = *sound_iter;
     // sound finished playing or was stopped
-    if (sound->isFinished() || sound->isStopped()) { 
+    if (isFinished(sound) || isStopped(sound)) { 
       // only unset mix_idx if it finished playing and wasn't stopped
-      if (!(sound->isStopped())) { 
-        if (sound->tag == SoundType) {
-          sound->sound->mix_idx = -1;
+      if (!(isStopped(sound))) { 
+        if (sound.tag == SoundType) {
+          sound.sound->mix_idx = -1;
         } else {
-          sound->stream->mix_idx = -1;
+          sound.stream->mix_idx = -1;
         }
       }
 
       // swap sound to remove with last sound in list
-      int idx = (int)(sound - sounds->begin());
+      int idx = (int)(sound_iter - sounds->begin());
       if (idx != (int)sounds->size() - 1) { // not removing last sound
-        *sound = sounds->back();
-        if (sound->tag == SoundType) {
-          sound->sound->mix_idx = idx;
+        sound = sounds->back();
+        if (sound.tag == SoundType) {
+          sound.sound->mix_idx = idx;
         } else {
-          sound->stream->mix_idx = idx;
+          sound.stream->mix_idx = idx;
         }
         sounds->pop_back();
         sound_end = sounds->end();
@@ -775,21 +358,21 @@ void AudioSystem::update()
       }
     }
 
-    if (sound->tag == SoundType) {
-      sound->updateSound();
+    if (sound.tag == SoundType) {
+      updateSound(sound, *sound.sound);
     } else {
-      StreamBuffer &stream_buf = sound->stream->buffer;
+      StreamBuffer &stream_buf = sound.stream->buffer;
       // failed to advance in audioCallback, so try here
-      if (sound->streamSwapNeeded(stream_buf)) {
-        sound->streamSwapBuffers(stream_buf);
-        if (sound->isFinished()) { // finished or error occurred
+      if (streamSwapNeeded(sound, stream_buf)) {
+        streamSwapBuffers(sound, stream_buf);
+        if (isFinished(sound)) { // finished or error occurred
           continue; // will be removed at top of loop
         }
       }
-      sound->updateStream();
+      updateStream(sound, *sound.stream);
     }
 
-    ++sound;
+    ++sound_iter;
   }
 
   SDL_UnlockAudioDevice(dev_id);
@@ -811,7 +394,7 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
     // audio_mutex must be locked while using sound
     PlayingSound &sound = (*sounds)[i];
     // not paused, stopped, or finished
-    if (sound.isPlaying() || sound.isPauseChanging()) {
+    if (isPlaying(sound) || isPauseChanging(sound)) {
       int total_copied = 0; 
 
       if (sound.tag == SoundType) {
@@ -822,17 +405,14 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
                                   audio_tmp_buf, len);
       }
 
-      float rel_x = sound.x;
-      float rel_y = sound.y;
-      float left_vol = sound.volume;
-      float right_vol = sound.volume;
-      FadeData fdata = sound.getFade();
-      sound.volume = sound.new_volume; // set after getting fade
+      double rel_x = sound.x;
+      double rel_y = sound.y;
+      VolumeData vdata = getVolumeData(sound);
 
       // Unlock audio_mutex when done with sound. Must be unlocked
       // before calling soundFinished/streamFinished
 
-      if (sound.isFinished()) {
+      if (isFinished(sound)) {
         if (sound.tag == SoundType) {
           Sound *s = sound.sound;
           guard.unlock();
@@ -848,20 +428,18 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
 
       // audio_mutex unlocked now, sound must not be used below
 
-      applyPosition(rel_x, rel_y, left_vol, right_vol);
+      applyPosition(rel_x, rel_y, vdata);
 
       switch (AudioSystem::getFormat()) {
       case OutFormat_Float: {
         const int num_samples = total_copied / sizeof(float);
-        applyVolume((float*)audio_tmp_buf, num_samples, 
-                    left_vol, right_vol, fdata);
+        applyVolume((float*)audio_tmp_buf, num_samples, vdata);
         mixStream((float*)stream, (float*)audio_tmp_buf, num_samples);
         break;
       }
       case OutFormat_S16: {
         const int num_samples = total_copied / sizeof(int16_t);
-        applyVolume((int16_t*)audio_tmp_buf, num_samples, 
-                    left_vol, right_vol, fdata);
+        applyVolume((int16_t*)audio_tmp_buf, num_samples, vdata);
         mixStream(audio_mix_buf, (int16_t*)audio_tmp_buf, num_samples);
         break;
       }
@@ -882,3 +460,575 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
 }
 
 } // end namespace KameMix
+
+namespace {
+
+void initPlayingSound_(PlayingSound &ps, int loops, int buf_pos,
+                       bool paused, float fade)
+{
+  ps.loop_count = loops;
+  ps.buffer_pos = buf_pos;
+  setFadein(ps, fade);
+  if (paused) {
+    ps.state = PausedState;
+  } else {
+    ps.state = PlayingState;
+  }
+}
+
+inline
+PlayingSound makePlayingSound(Sound *s, int loops, int buf_pos, 
+                              bool paused, float fade) 
+{ 
+  PlayingSound ps;
+  initPlayingSound_(ps, loops, buf_pos, paused, fade);
+  updateSound(ps, *s);
+  ps.volume = ps.new_volume;
+  ps.sound = s;
+  ps.tag = SoundType;
+  return ps;
+}
+
+inline
+PlayingSound makePlayingSound(Stream *s, int loops, int buf_pos, 
+                              bool paused, float fade) 
+{ 
+  PlayingSound ps;
+  initPlayingSound_(ps, loops, buf_pos, paused, fade);
+  updateStream(ps, *s);
+  ps.volume = ps.new_volume;
+  ps.stream = s;
+  ps.tag = StreamType;
+  return ps;
+}
+
+inline
+bool isPlaying(const PlayingSound &s) 
+{ 
+  return s.state == PlayingState; 
+}
+
+inline
+bool isFinished(const PlayingSound &s) 
+{ 
+  return s.state == FinishedState; 
+}
+
+inline
+bool isStopped(const PlayingSound &s) 
+{ 
+  return s.state == StoppedState; 
+}
+
+inline
+bool isPaused(const PlayingSound &s) 
+{ 
+  return s.state == PausedState; 
+}
+
+inline
+bool isPausing(const PlayingSound &s) 
+{ 
+  return s.state == PausingState; 
+}
+
+inline
+bool isUnpausing(const PlayingSound &s) 
+{ 
+  return s.state == UnpausingState; 
+}
+
+inline
+bool isFadeNeeded(const PlayingSound &s) {
+  return isFading(s) || isVolumeChanging(s) || isPauseChanging(s);
+}
+
+inline
+bool isFading(const PlayingSound &s) 
+{ 
+  return s.fade_total != 0.0f; 
+}
+bool isFadingIn(const PlayingSound &s) 
+{ 
+  return s.fade_total > 0.0f; 
+}
+
+inline
+bool isFadingOut(const PlayingSound &s) 
+{ 
+  return s.fade_total < 0.0f; 
+}
+
+inline
+bool isPauseChanging(const PlayingSound &s) 
+{ 
+  return isPausing(s) || isUnpausing(s); 
+}
+
+inline
+bool isVolumeChanging(const PlayingSound &s) 
+{ 
+  return s.volume != s.new_volume; 
+}
+
+
+void setFadein(PlayingSound &sound, float fade) 
+{
+  if (fade == 0.0f) {
+    sound.fade_total = 0.0f;
+  } else if (fade > secs_per_callback) {
+    sound.fade_total = fade;
+  } else {
+    sound.fade_total = (float)secs_per_callback;
+  }
+  sound.fade_time = 0.0f;
+}
+
+// set fade_total to negative for fadeout
+void setFadeout(PlayingSound &sound, float fade) {
+  if (fade == 0.0f) {
+    sound.fade_total = 0.0f;
+    sound.fade_time = 0.0f;
+    return;
+  } 
+  if (fade > secs_per_callback) {
+    sound.fade_total = -fade;
+    sound.fade_time = fade; 
+  } else {
+    sound.fade_total = (float)-secs_per_callback;
+    sound.fade_time = (float)secs_per_callback; 
+  }
+}
+
+inline
+void unsetFade(PlayingSound &sound) 
+{ 
+  sound.fade_total = sound.fade_time = 0.0f; 
+}
+
+inline
+void updateSound(PlayingSound &psound, Sound &sound) 
+{
+  psound.new_volume = sound.getVolumeInGroup();
+  sound.getRelativeDistance(psound.x, psound.y);
+}
+
+inline
+void updateStream(PlayingSound &sound, Stream &stream) 
+{
+  sound.new_volume = stream.getVolumeInGroup();
+  stream.getRelativeDistance(sound.x, sound.y);
+}
+
+inline
+void decrementLoopCount(PlayingSound &sound) 
+{
+  if (sound.loop_count == 0) {
+    sound.state = FinishedState;
+  } else if (sound.loop_count > 0) {
+    sound.loop_count -= 1;
+  }
+}
+
+inline
+bool streamSwapNeeded(PlayingSound &sound, StreamBuffer &stream_buf) 
+{
+  return sound.buffer_pos == stream_buf.size();
+}
+
+bool streamSwapBuffers(PlayingSound &sound, StreamBuffer &stream_buf)
+{
+  StreamResult result = stream_buf.swapBuffers();
+  if (result == StreamReady) {
+    if (stream_buf.endPos() == 0) { // EOF seen immediately on read
+      decrementLoopCount(sound);
+    }
+    sound.buffer_pos = 0;
+    if (!stream_buf.fullyBuffered()) {
+      std::thread thrd([stream_buf]() mutable { stream_buf.readMore(); }); 
+      thrd.detach();
+    }
+    return true;
+  } else if (result == StreamError) {
+    sound.state = FinishedState; 
+  } else {
+    assert(result != StreamNoData); // readMore never called
+    sound.buffer_pos = stream_buf.size();
+  }
+  return false;
+}
+
+VolumeData getVolumeData(PlayingSound &sound)
+{
+  if (isFadeNeeded(sound)) {
+    double start_fade = 1.0;
+    double end_fade = 1.0;
+    bool adjust_fade_time = false;
+
+    if (isFadingIn(sound)) {
+      start_fade = (double)sound.fade_time / sound.fade_total;
+      end_fade = (sound.fade_time + secs_per_callback) 
+                 / sound.fade_total;
+      adjust_fade_time = true;
+    } else if (isFadingOut(sound)) { // fade_total is negative in fadeout
+      start_fade = (double)sound.fade_time / -sound.fade_total;
+      end_fade = (sound.fade_time - secs_per_callback) 
+                 / -sound.fade_total;
+      adjust_fade_time = true;
+    }
+
+    double volume = sound.volume;
+
+    if (isVolumeChanging(sound)) {
+      if (sound.volume <= 0) {
+        volume = 0.01;
+      }
+      end_fade *= sound.new_volume / volume;
+      sound.volume = sound.new_volume;
+    }
+
+    if (isPausing(sound)) {
+      end_fade = 0.0;
+      adjust_fade_time = false;
+      sound.state = PausedState;
+    } else if (isUnpausing(sound)) {
+      start_fade = 0.0;
+      adjust_fade_time = false;
+      sound.state = PlayingState;
+    }
+
+    VolumeData vdata;
+    vdata.left_volume = volume;
+    vdata.right_volume = volume;
+    vdata.fade = start_fade;
+    const double fade_delta = end_fade - start_fade;
+    // divide fade_delta into 2% steps
+    const double delta_step = 0.02;
+    vdata.mod_times = (int)std::abs(fade_delta / delta_step);
+    if (vdata.mod_times > 50) {
+      vdata.mod_times = 50;
+    }
+    vdata.mod = fade_delta / (vdata.mod_times + 1);
+
+    if (adjust_fade_time) {
+      if (isFadingOut(sound)) {
+        sound.fade_time -= (float)secs_per_callback;
+        if (sound.fade_time <= 0.0f) {
+          // Finished not Stopped state, so mix_idx is unset in update
+          sound.state = FinishedState; 
+          unsetFade(sound);
+        }
+      } else {
+        sound.fade_time += (float)secs_per_callback;
+        if (sound.fade_time >= sound.fade_total) {
+          unsetFade(sound);
+        }
+      }
+    }
+
+    return vdata;
+  } else {
+    VolumeData vdata;
+    vdata.left_volume = vdata.right_volume = sound.volume;
+    vdata.fade = 1.0;
+    vdata.mod = 0.0;
+    vdata.mod_times = 0;
+    return vdata;
+  }
+}
+
+template <class T>
+void applyVolume(T *stream, int len, double left_vol, double right_vol)
+{
+  for (int i = 0; i < len; i += 2) {
+    stream[i] = (T)(stream[i] * left_vol);
+    stream[i+1] = (T)(stream[i+1] * right_vol);
+  }
+}
+
+template <class T>
+void applyVolume(T *stream, int len_, const VolumeData &vdata)
+{
+  int pos = 0;
+  // make sure len is even after dividing by mod_times+1
+  int len = (len_ / 2) / (vdata.mod_times + 1) * 2;
+
+  for (int i = 0; i < vdata.mod_times; ++i) {
+    double fade = vdata.fade + i * vdata.mod;
+    double left_vol = vdata.left_volume * fade;
+    double right_vol = vdata.right_volume * fade;
+    applyVolume(stream+pos, len, left_vol, right_vol);
+    pos += len;
+    fade += vdata.mod;
+    if (fade > 1.0) {
+      fade = 1.0;
+    } else if (fade < 0.0) {
+      fade = 0.0;
+    }
+  }
+
+  double fade = vdata.fade + vdata.mod_times * vdata.mod;
+  double left_vol = vdata.left_volume * fade;
+  double right_vol = vdata.right_volume * fade;
+  // len*(fdata.mod_times+1) can be less than len_, so make sure to
+  // include all last samples
+  len = len_ - pos;
+  applyVolume(stream+pos, len, left_vol, right_vol);
+}
+
+template <class CopyFunc>
+int copySound(CopyFunc copy, uint8_t *buffer, const int buf_len, 
+              PlayingSound &sound, SoundBuffer &sound_buf)
+{
+  int buf_left = buf_len;
+  int total_copied = 0;
+
+  while (true) {
+    // FinishedState from decrementLoopCount
+    if (isFinished(sound)) { 
+      break;
+    }
+
+    int src_left = sound_buf.size() - sound.buffer_pos;
+    CopyResult cpy_amount = 
+      copy(buffer + total_copied, buf_left, 
+           sound_buf.data() + sound.buffer_pos, src_left);
+                                  
+    total_copied += cpy_amount.target_amount;
+
+    // didn't reach end of sound buffer
+    if (cpy_amount.src_amount < src_left) { 
+      sound.buffer_pos += cpy_amount.src_amount;
+      break;
+    } else {
+      // reached end of sound
+      decrementLoopCount(sound);
+      sound.buffer_pos = 0;
+      buf_left -= cpy_amount.target_amount;
+    } 
+  }
+
+  return total_copied;
+}
+
+template <class CopyFunc>
+int copyStream(CopyFunc copy, uint8_t *buffer, const int buf_len, 
+               PlayingSound &stream, StreamBuffer &stream_buf)
+{
+  int buf_left = buf_len;
+  int total_copied = 0; 
+
+  while (true) {
+    // FinishedState from decrementLoopCount or on error advancing
+    if (isFinished(stream)) { 
+      break;
+    }
+
+    int end_pos = stream_buf.endPos(); // -1 if not in buffer
+    int src_left;
+    if (end_pos <= stream.buffer_pos) {
+      src_left = stream_buf.size() - stream.buffer_pos;
+    } else {
+      src_left = end_pos - stream.buffer_pos;
+    }
+    //int cpy_amount = buf_left < src_left ? buf_left : src_left;
+
+    CopyResult cpy_amount = 
+      copy(buffer + total_copied, buf_left, 
+           stream_buf.data() + stream.buffer_pos, src_left);
+
+    total_copied += cpy_amount.target_amount;
+    buf_left -= cpy_amount.target_amount;
+      
+    // didn't reach end of stream or its main buffer
+    if (cpy_amount.src_amount < src_left) { 
+      stream.buffer_pos += cpy_amount.src_amount;
+      break;
+    // reached end of buffer
+    } else if (stream.buffer_pos + cpy_amount.src_amount 
+               == stream_buf.size()) { 
+      if (end_pos == stream_buf.size()) { // end of stream at end of buffer
+        // buffer_pos may be at end from last time and failed to swap buffers
+        if (cpy_amount.target_amount > 0) { 
+          decrementLoopCount(stream);
+        }
+      }
+
+      if (!streamSwapBuffers(stream, stream_buf)) {
+        break;
+      }
+    } else { // end of stream and not end of buffer
+      stream.buffer_pos = end_pos;
+      decrementLoopCount(stream);
+    }
+  }
+
+  return total_copied;
+}
+
+template <class T>
+CopyResult 
+CopyMono<T>::operator()(uint8_t *dst_, int target_len, 
+                     uint8_t *src_, int src_len)
+{
+  int half_target_left = target_len / 2;
+  int half_cpy_amount = half_target_left < src_len ? 
+                        half_target_left : src_len;
+
+  const int len = half_cpy_amount / sizeof(T);
+  T *src = (T*)src_; 
+  T *src_end = src + len; 
+  T *dst = (T*)dst_;
+  while (src != src_end) {
+    const T val = *src++;
+    dst[0] = val;
+    dst[1] = val;
+    dst += 2;
+  }
+
+  CopyResult result = { half_cpy_amount * 2, half_cpy_amount };
+  return result;
+}
+
+CopyResult 
+CopyStereo::operator()(uint8_t *dst, int dst_len, uint8_t *src, int src_len)
+{
+  int cpy_amount = dst_len < src_len ? dst_len : src_len;
+  memcpy(dst, src, cpy_amount);
+
+  CopyResult result = { cpy_amount, cpy_amount };
+  return result;
+}
+
+int copySound(PlayingSound &sound, SoundBuffer &sound_buf, 
+              uint8_t *buf, int len)
+{
+  if (sound_buf.numChannels() == 1) {
+    switch (AudioSystem::getFormat()) {
+    case OutFormat_Float:
+      return copySound(CopyMono<float>(), buf, len, sound, sound_buf);
+      break;
+    case OutFormat_S16:
+      return copySound(CopyMono<int16_t>(), buf, len, sound, sound_buf);
+      break;
+    }
+    assert("Invalid Output Format");
+    return -1;
+  } else {
+    return copySound(CopyStereo(), buf, len, sound, sound_buf);
+  }
+}
+
+int copyStream(PlayingSound &sound, StreamBuffer &stream_buf,
+              uint8_t *buf, int len)
+{
+  if (stream_buf.numChannels() == 1) {
+    switch (AudioSystem::getFormat()) {
+    case OutFormat_Float:
+      return copyStream(CopyMono<float>(), buf, len, sound, stream_buf);
+      break;
+    case OutFormat_S16:
+      return copyStream(CopyMono<int16_t>(), buf, len, sound, stream_buf);
+      break;
+    }
+    assert("Invalid Output Format");
+    return -1;
+  } else {
+    return  copyStream(CopyStereo(), buf, len, sound, stream_buf);
+  }
+}
+
+template <class T, class U>
+void mixStream(T *target, U *source, int len) 
+{
+  for (int i = 0; i < len; ++i) {
+    target[i] += source[i];
+  }
+}
+
+// Modify left and right channel volume by position. Doesn't change if 
+// sound.x and sound.y == 0.
+// left_vol and right_vol must be initialized before calling.
+void applyPosition(double rel_x, double rel_y, VolumeData &vdata)
+{
+  if (rel_x == 0 && rel_y == 0) {
+    return;
+  }
+
+  double distance = sqrt(rel_x * rel_x + rel_y * rel_y);
+
+  if (distance >= 1.0f) {
+    vdata.left_volume = vdata.right_volume = 0.0f;
+  } else {
+    // Sound's volume on left and right speakers vary between 
+    // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
+    // directly in front or behind listener. With max_mod = 0.3, this is 
+    // 1.0 to 0.54 and 0.77 in front and back.
+    const double max_mod = 0.3f;
+    const double base = 1/(1.0f+max_mod) * (1.0 - distance);
+    vdata.left_volume *= base;
+    vdata.right_volume *= base;
+    double left_mod = 1.0;
+    double right_mod = 1.0;
+
+    if (rel_x != 0.0f) { // not 90 or 270 degrees
+      double rads = atan(rel_y / rel_x);
+      if (rel_y >= 0.0f) { // quadrant 1 and 2
+        if (rel_x > 0.0f) { // quadrant 1
+          double mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f - mod;
+          right_mod = 1.0f + mod;
+        } else if (rel_x < 0.0f) { // quadrant 2
+          double mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f + mod;
+          right_mod = 1.0f - mod;
+        }
+      } else { // quadrants 3 and 4
+         if (rel_x < 0.0f) { // quadrant 3
+          double mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f + mod;
+          right_mod = 1.0f - mod;
+        } else if (rel_x > 0.0f) { // quadrant 4
+          double mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f - mod;
+          right_mod = 1.0f + mod;
+        }
+      }
+
+      vdata.left_volume *= left_mod;
+      vdata.right_volume *= right_mod;
+    } // end sound.x != 0
+  } // end distance < 1.0
+}
+
+void clamp(float *buf, int len)
+{
+  for (int i = 0; i < len; ++i) {
+    float val = buf[i];
+    if (val > 1.0f) {
+      buf[i] = 1.0f;
+    } else if (val < -1.0f) {
+      buf[i] = -1.0f;
+    }
+  }
+}
+
+void clamp(int16_t *target, int32_t *src, int len)
+{
+  const int32_t max_val = std::numeric_limits<int16_t>::max();
+  const int32_t min_val = std::numeric_limits<int16_t>::min();
+  for (int i = 0; i < len; ++i) {
+    int32_t val = src[i];
+    if (val > max_val) {
+      target[i] = max_val;
+    } else if (val < min_val) {
+      target[i] = min_val;
+    } else {
+      target[i] = val;
+    }
+  }
+}
+
+
+} // end anon namespace
+

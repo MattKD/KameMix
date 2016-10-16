@@ -62,8 +62,8 @@ public:
 
   // number of sounds playing including paused
   static int numberPlaying(); 
-  static float getMastervolume() { return master_volume; }
-  static void setMasterVolume(float volume) { master_volume = volume; }
+  static double getMastervolume() { return master_volume; }
+  static void setMasterVolume(double volume) { master_volume = volume; }
 
   static int getFrequency() { return frequency; }
   static int getChannels() { return channels; }
@@ -131,7 +131,7 @@ private:
   static int channels;
   static int frequency;
   static OutAudioFormat format;
-  static float master_volume;
+  static double master_volume;
   static MallocFunc user_malloc;
   static FreeFunc user_free;
   static ReallocFunc user_realloc;

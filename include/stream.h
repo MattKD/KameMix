@@ -88,6 +88,7 @@ public:
 
   int getGroup() const { return group; }
   void setGroup(int group_) { group = group_; }
+  void unsetGroup() { group = -1; }
 
   void play(int loops, bool paused = false)
   {

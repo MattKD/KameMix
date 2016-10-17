@@ -162,6 +162,13 @@ MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
 
+void AudioSystem::setLoopCount(int idx, int loops)
+{
+  std::lock_guard<std::mutex> guard(audio_mutex);
+  PlayingSound &sound = (*sounds)[idx];
+  sound.loop_count = loops;
+}
+
 void AudioSystem::setListenerPos(float x, float y)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
@@ -1144,7 +1151,6 @@ void streamFinished(Stream *stream)
     stream_finished(stream, stream_finished_data);
   }
 }
-
 
 } // end anon namespace
 

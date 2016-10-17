@@ -176,6 +176,13 @@ public:
     return mix_idx != -1 && AudioSystem::isSoundPaused(mix_idx);
   }
 
+  void setLoopCount(int loops)
+  {
+    if (mix_idx != -1) {
+      AudioSystem::setLoopCount(mix_idx, loops);
+    }
+  }
+
 private:
   void readMore()
   {

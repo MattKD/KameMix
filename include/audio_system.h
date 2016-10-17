@@ -92,6 +92,7 @@ private:
   static void unpauseSound(int idx); 
   // returns false if playing or finished.
   static bool isSoundPaused(int idx); 
+  static void setLoopCount(int idx, int loops);
   static void audioCallback(void *udata, uint8_t *stream, const int len);
 
   static int channels;

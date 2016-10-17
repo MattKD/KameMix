@@ -87,12 +87,12 @@ public:
   void setGroup(int group_) { group = group_; }
   void unsetGroup() { group = -1; }
 
-  void play(int loops, bool paused = false) 
+  void play(int loops = 0, bool paused = false) 
   {
-    fadein(loops, -1, paused);
+    fadein(-1, loops, paused);
   }
 
-  void fadein(int loops, float fade_secs, bool paused = false) 
+  void fadein(float fade_secs, int loops = 0, bool paused = false) 
   {
     if (buffer.isLoaded()) {
       halt();
@@ -100,12 +100,12 @@ public:
     }
   }
 
-  void playAt(int loops, double sec, bool paused = false)
+  void playAt(double sec, int loops = 0, bool paused = false)
   {
-    fadeinAt(loops, sec, -1, paused);
+    fadeinAt(sec, -1, loops, paused);
   }
 
-  void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
+  void fadeinAt(double sec, float fade_secs, int loops = 0, bool paused = false) 
   {
     if (buffer.isLoaded()) {
       halt();

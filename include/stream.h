@@ -113,12 +113,12 @@ public:
     }
   }
 
-  void playAt(int loops, double sec, bool paused = false)
+  void playAt(double sec, int loops = 0, bool paused = false)
   {
-    fadeinAt(loops, sec, -1, paused);
+    fadeinAt(sec, -1, loops, paused);
   }
 
-  void fadeinAt(int loops, double sec, float fade_secs, bool paused = false) 
+  void fadeinAt(double sec, float fade_secs, int loops = 0, bool paused = false) 
   {
     if (isLoaded()) {
       halt();

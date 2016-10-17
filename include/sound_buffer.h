@@ -19,7 +19,7 @@ struct SoundSharedData {
   int channels;
 };
 
-class DECLSPEC SoundBuffer {
+class KAMEMIX_DECLSPEC SoundBuffer {
 public:
   SoundBuffer() : sdata{nullptr} { }
 

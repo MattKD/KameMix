@@ -8,16 +8,15 @@
 
 namespace KameMix {
 
-class DECLSPEC Stream {
+class KAMEMIX_DECLSPEC Stream {
 public:
   Stream() : 
-    group{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
+    group{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
+  { }
 
   explicit
   Stream(const char *filename, double sec = 0.0) : 
-    group{-1}, volume{1.0f}, 
-    x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
+    group{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
   { 
     load(filename, sec); 
   }
@@ -68,6 +67,10 @@ public:
   float getVolume() const { return volume; }
   void setVolume(float v) { volume = v; }
 
+  int getGroup() const { return group; }
+  void setGroup(int group_) { group = group_; }
+  void unsetGroup() { group = -1; }
+
   float getX() const { return x; }
   float getY() const { return y; }
   void setPos(float x_, float y_)
@@ -86,16 +89,12 @@ public:
   void useListener(bool use_listener_) { use_listener = use_listener_; }
   bool usingListener() const { return use_listener; }
 
-  int getGroup() const { return group; }
-  void setGroup(int group_) { group = group_; }
-  void unsetGroup() { group = -1; }
-
-  void play(int loops, bool paused = false)
+  void play(int loops = 0, bool paused = false)
   {
-    fadein(loops, -1, paused);
+    fadein(-1, loops, paused);
   }
 
-  void fadein(int loops, float fade_secs, bool paused = false) 
+  void fadein(float fade_secs, int loops = 0, bool paused = false) 
   {
     if (isLoaded()) {
       halt();
@@ -145,6 +144,8 @@ public:
   void halt() { fadeout(0); } // instant remove
   void stop() { fadeout(-1); } // removes with min fade
 
+  // fade_secs = 0 for instant remove, same as halt(); -1 for fastest fade,
+  // same as stop()
   void fadeout(float fade_secs)
   {
     if (isPlaying()) {
@@ -158,7 +159,6 @@ public:
   {
     return isPlaying() && AudioSystem::isSoundFinished(mix_idx) == false;
   }
-
 
   void pause()
   {

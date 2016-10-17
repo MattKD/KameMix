@@ -60,7 +60,7 @@ struct StreamSharedData {
 };
 
 
-class DECLSPEC StreamBuffer {
+class KAMEMIX_DECLSPEC StreamBuffer {
 public:
   StreamBuffer() : sdata{nullptr} {  }
 

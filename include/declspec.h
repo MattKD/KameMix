@@ -3,12 +3,12 @@
 
 #ifdef _WIN32
   #ifdef KAMEMIX_EXPORTS
-    #define DECLSPEC __declspec(dllexport)
+    #define KAMEMIX_DECLSPEC __declspec(dllexport)
   #else
-   #define DECLSPEC __declspec(dllimport)
+   #define KAMEMIX_DECLSPEC __declspec(dllimport)
   #endif
 #else
-  #define DECLSPEC
+  #define KAMEMIX_DECLSPEC
 #endif
 
 #endif

@@ -22,7 +22,7 @@ enum OutAudioFormat {
   OutFormat_S16
 };
 
-class DECLSPEC AudioSystemMixIdx {
+class KAMEMIX_DECLSPEC AudioSystemMixIdx {
 public:
   AudioSystemMixIdx() : idx{-1} { }
   bool isSet() const { return idx >= 0; }
@@ -36,7 +36,7 @@ private:
   friend class AudioSystem;
 };
 
-class DECLSPEC AudioSystem {
+class KAMEMIX_DECLSPEC AudioSystem {
 public:
   // Initializes AudioSystem. Must be called before all other KameMix 
   // functions. Only call once in application, even if shutdown is called. 

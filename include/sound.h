@@ -7,7 +7,7 @@
 
 namespace KameMix {
 
-class DECLSPEC Sound {
+class KAMEMIX_DECLSPEC Sound {
 public:
   Sound() : 
     group{-1}, volume{1.0f}, 

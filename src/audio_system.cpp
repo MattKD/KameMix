@@ -162,10 +162,10 @@ MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
 
-void AudioSystem::setLoopCount(int idx, int loops)
+void AudioSystem::setLoopCount(AudioSystemMixIdx idx, int loops)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx];
+  PlayingSound &sound = (*sounds)[idx.idx];
   sound.loop_count = loops;
 }
 
@@ -309,9 +309,9 @@ void AudioSystem::shutdown()
 
   for (PlayingSound &sound : *sounds) {
     if (sound.tag == SoundType) {
-      sound.sound->mix_idx = -1;
+      sound.sound->mix_idx.unset();
     } else {
-      sound.stream->mix_idx = -1;
+      sound.stream->mix_idx.unset();
     }
   }
 
@@ -331,7 +331,7 @@ void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   sounds->push_back(makePlayingSound(sound, loops, pos, paused, fade));
-  sound->mix_idx = (int)sounds->size() - 1;
+  sound->mix_idx.set((int)sounds->size() - 1);
 }
 
 void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
@@ -339,43 +339,43 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   sounds->push_back(makePlayingSound(stream, loops, pos, paused, fade));
-  stream->mix_idx = (int)sounds->size() - 1;
+  stream->mix_idx.set((int)sounds->size() - 1);
 }
 
-void AudioSystem::removeSound(Sound *sound, int idx, float fade_secs)
+void AudioSystem::removeSound(Sound *sound, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &psound = (*sounds)[idx];
+  PlayingSound &psound = (*sounds)[sound->mix_idx.idx];
   if (fade_secs == 0.0f) {
     psound.state = StoppedState;
-    sound->mix_idx = -1;
+    sound->mix_idx.unset();
   } else {
     setFadeout(psound, fade_secs);
   }
 }
 
-void AudioSystem::removeStream(Stream *stream, int idx, float fade_secs)
+void AudioSystem::removeStream(Stream *stream, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &psound = (*sounds)[idx];
+  PlayingSound &psound = (*sounds)[stream->mix_idx.idx];
   if (fade_secs == 0.0f) {
     psound.state = StoppedState;
-    stream->mix_idx = -1;
+    stream->mix_idx.unset();
   } else {
     setFadeout(psound, fade_secs);
   }
 }
 
-bool AudioSystem::isSoundFinished(int idx)
+bool AudioSystem::isSoundFinished(AudioSystemMixIdx idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  return isFinished((*sounds)[idx]);
+  return isFinished((*sounds)[idx.idx]);
 }
 
-void AudioSystem::pauseSound(int idx)
+void AudioSystem::pauseSound(AudioSystemMixIdx idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx];
+  PlayingSound &sound = (*sounds)[idx.idx];
   if (isPlaying(sound)) { 
     sound.state = PausingState;
   } else if (isUnpausing(sound)) {
@@ -383,10 +383,10 @@ void AudioSystem::pauseSound(int idx)
   }
 }
 
-void AudioSystem::unpauseSound(int idx)
+void AudioSystem::unpauseSound(AudioSystemMixIdx idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx];
+  PlayingSound &sound = (*sounds)[idx.idx];
   if (isPaused(sound)) { 
     sound.state = UnpausingState;
   } else if (isPausing(sound)) {
@@ -394,10 +394,10 @@ void AudioSystem::unpauseSound(int idx)
   }
 }
 
-bool AudioSystem::isSoundPaused(int idx)
+bool AudioSystem::isSoundPaused(AudioSystemMixIdx idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx];
+  PlayingSound &sound = (*sounds)[idx.idx];
   return isPaused(sound) || isPausing(sound); 
 }
 
@@ -415,9 +415,9 @@ void AudioSystem::update()
       // only unset mix_idx if it finished playing and wasn't stopped
       if (!(isStopped(sound))) { 
         if (sound.tag == SoundType) {
-          sound.sound->mix_idx = -1;
+          sound.sound->mix_idx.unset();
         } else {
-          sound.stream->mix_idx = -1;
+          sound.stream->mix_idx.unset();
         }
       }
 
@@ -426,9 +426,9 @@ void AudioSystem::update()
       if (idx != (int)sounds->size() - 1) { // not removing last sound
         sound = sounds->back();
         if (sound.tag == SoundType) {
-          sound.sound->mix_idx = idx;
+          sound.sound->mix_idx.set(idx);
         } else {
-          sound.stream->mix_idx = idx;
+          sound.stream->mix_idx.set(idx);
         }
         sounds->pop_back();
         sound_end = sounds->end();

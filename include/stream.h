@@ -11,12 +11,12 @@ namespace KameMix {
 class DECLSPEC Stream {
 public:
   Stream() : 
-    group{-1}, mix_idx{-1}, volume{1.0f}, 
+    group{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
 
   explicit
   Stream(const char *filename, double sec = 0.0) : 
-    group{-1}, mix_idx{-1}, volume{1.0f}, 
+    group{-1}, volume{1.0f}, 
     x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
   { 
     load(filename, sec); 
@@ -142,43 +142,46 @@ public:
     }
   }
 
-  void halt() { fadeout(0); } // instant remove; sets mix_idx to -1 
-  void stop() { fadeout(-1); } // removes with min fade; sets mix_idx to -1 
+  void halt() { fadeout(0); } // instant remove
+  void stop() { fadeout(-1); } // removes with min fade
 
   void fadeout(float fade_secs)
   {
-    if (mix_idx != -1) {
-      AudioSystem::removeStream(this, mix_idx, fade_secs);
+    if (isPlaying()) {
+      AudioSystem::removeStream(this, fade_secs);
     }
   }
 
-  bool isPlaying() const
+  bool isPlaying() const { return mix_idx.isSet(); }
+
+  bool isPlayingReal() const
   {
-    return mix_idx != -1 && AudioSystem::isSoundFinished(mix_idx) == false;
+    return isPlaying() && AudioSystem::isSoundFinished(mix_idx) == false;
   }
+
 
   void pause()
   {
-    if (mix_idx != -1) {
+    if (isPlaying()) {
       AudioSystem::pauseSound(mix_idx);
     }
   }
 
   void unpause()
   {
-    if (mix_idx != -1) {
+    if (isPlaying()) {
       AudioSystem::unpauseSound(mix_idx);
     }
   }
 
   bool isPaused() const
   {
-    return mix_idx != -1 && AudioSystem::isSoundPaused(mix_idx);
+    return isPlaying() && AudioSystem::isSoundPaused(mix_idx);
   }
 
   void setLoopCount(int loops)
   {
-    if (mix_idx != -1) {
+    if (isPlaying()) {
       AudioSystem::setLoopCount(mix_idx, loops);
     }
   }
@@ -193,7 +196,7 @@ private:
 
   StreamBuffer buffer;
   int group;
-  int mix_idx;
+  AudioSystemMixIdx mix_idx;
   float volume;
   float x, y;
   float max_distance;

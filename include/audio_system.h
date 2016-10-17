@@ -22,6 +22,20 @@ enum OutAudioFormat {
   OutFormat_S16
 };
 
+class DECLSPEC AudioSystemMixIdx {
+public:
+  AudioSystemMixIdx() : idx{-1} { }
+  bool isSet() const { return idx >= 0; }
+  bool isUnset() const { return !isSet(); }
+
+private:
+  void set(int i) { idx = i; }
+  void unset() { idx = -1; }
+
+  int idx;
+  friend class AudioSystem;
+};
+
 class DECLSPEC AudioSystem {
 public:
   // Initializes AudioSystem. Must be called before all other KameMix 
@@ -85,14 +99,14 @@ private:
                        float fade);
   static void addStream(Stream *stream, int loops, int pos, bool paused,
                         float fade);
-  static void removeSound(Sound *sound, int idx, float fade_secs);
-  static void removeStream(Stream *stream, int idx, float fade_secs);
-  static bool isSoundFinished(int idx);
-  static void pauseSound(int idx); 
-  static void unpauseSound(int idx); 
+  static void removeSound(Sound *sound, float fade_secs);
+  static void removeStream(Stream *stream, float fade_secs);
+  static bool isSoundFinished(AudioSystemMixIdx idx);
+  static void pauseSound(AudioSystemMixIdx idx); 
+  static void unpauseSound(AudioSystemMixIdx idx); 
   // returns false if playing or finished.
-  static bool isSoundPaused(int idx); 
-  static void setLoopCount(int idx, int loops);
+  static bool isSoundPaused(AudioSystemMixIdx idx); 
+  static void setLoopCount(AudioSystemMixIdx idx, int loops);
   static void audioCallback(void *udata, uint8_t *stream, const int len);
 
   static int channels;

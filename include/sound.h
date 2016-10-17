@@ -61,6 +61,7 @@ public:
     buffer.release(); 
   }
   bool isLoaded() const { return buffer.isLoaded(); }
+  int useCount() const { return buffer.useCount(); }
 
   float getVolume() const { return volume; }
   void setVolume(float v) { volume = v; }

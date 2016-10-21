@@ -2,7 +2,6 @@
 #define KAME_MIX_STREAM_H
 
 #include "stream_buffer.h"
-#include "declspec.h"
 
 namespace KameMix {
 
@@ -10,8 +9,6 @@ class KAMEMIX_DECLSPEC Stream {
 public:
   Stream();
   explicit Stream(const char *filename, double sec = 0.0);
-  Stream(const Stream &other) = delete;
-  Stream& operator=(const Stream &other) = delete;
   ~Stream();
 
   bool load(const char *filename, double sec = 0.0);
@@ -32,10 +29,8 @@ public:
   void setPos(float x_, float y_);
   void moveBy(float dx, float dy);
   float getMaxDistance() const;
+  // Must be set to greater than 0 to use position.
   void setMaxDistance(float distance);
-
-  void useListener(bool use_listener_);
-  bool usingListener() const;
 
   void play(int loops = 0, bool paused = false);
   void fadein(float fade_secs, int loops = 0, bool paused = false); 
@@ -56,15 +51,16 @@ public:
   void setLoopCount(int loops);
 
 private:
+  Stream(const Stream &other) = delete;
+  Stream& operator=(const Stream &other) = delete;
   void readMore();
 
   StreamBuffer buffer;
   int group;
-  AudioSystemMixIdx mix_idx;
+  int mix_idx;
   float volume;
   float x, y;
   float max_distance;
-  bool use_listener;
   friend class AudioSystem;
 };
 

@@ -117,7 +117,7 @@ void unsetFade(PlayingSound &sound);
 void updateSound(PlayingSound &psound, Sound &sound); 
 void updateStream(PlayingSound &sound, Stream &stream); 
 void decrementLoopCount(PlayingSound &sound);
-bool streamSwapNeeded(PlayingSound &sound, StreamBuffer &stream_buf) ;
+bool streamSwapNeeded(PlayingSound &sound, StreamBuffer &stream_buf);
 bool streamSwapBuffers(PlayingSound &sound, StreamBuffer &stream_buf);
 VolumeData getVolumeData(PlayingSound &sound);
 
@@ -163,10 +163,10 @@ MallocFunc AudioSystem::user_malloc;
 FreeFunc AudioSystem::user_free;
 ReallocFunc AudioSystem::user_realloc;
 
-void AudioSystem::setLoopCount(AudioSystemMixIdx idx, int loops)
+void AudioSystem::setLoopCount(int idx, int loops)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx.idx];
+  PlayingSound &sound = (*sounds)[idx];
   sound.loop_count = loops;
 }
 
@@ -310,9 +310,9 @@ void AudioSystem::shutdown()
 
   for (PlayingSound &sound : *sounds) {
     if (sound.tag == SoundType) {
-      sound.sound->mix_idx.unset();
+      sound.sound->mix_idx = -1;
     } else {
-      sound.stream->mix_idx.unset();
+      sound.stream->mix_idx = -1;
     }
   }
 
@@ -332,7 +332,7 @@ void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   sounds->push_back(makePlayingSound(sound, loops, pos, paused, fade));
-  sound->mix_idx.set((int)sounds->size() - 1);
+  sound->mix_idx = (int)sounds->size() - 1;
 }
 
 void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
@@ -340,16 +340,16 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
   sounds->push_back(makePlayingSound(stream, loops, pos, paused, fade));
-  stream->mix_idx.set((int)sounds->size() - 1);
+  stream->mix_idx = (int)sounds->size() - 1;
 }
 
 void AudioSystem::removeSound(Sound *sound, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &psound = (*sounds)[sound->mix_idx.idx];
+  PlayingSound &psound = (*sounds)[sound->mix_idx];
   if (fade_secs == 0.0f) {
     psound.state = StoppedState;
-    sound->mix_idx.unset();
+    sound->mix_idx = -1;
   } else {
     setFadeout(psound, fade_secs);
   }
@@ -358,25 +358,25 @@ void AudioSystem::removeSound(Sound *sound, float fade_secs)
 void AudioSystem::removeStream(Stream *stream, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &psound = (*sounds)[stream->mix_idx.idx];
+  PlayingSound &psound = (*sounds)[stream->mix_idx];
   if (fade_secs == 0.0f) {
     psound.state = StoppedState;
-    stream->mix_idx.unset();
+    stream->mix_idx = -1;
   } else {
     setFadeout(psound, fade_secs);
   }
 }
 
-bool AudioSystem::isSoundFinished(AudioSystemMixIdx idx)
+bool AudioSystem::isSoundFinished(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  return isFinished((*sounds)[idx.idx]);
+  return isFinished((*sounds)[idx]);
 }
 
-void AudioSystem::pauseSound(AudioSystemMixIdx idx)
+void AudioSystem::pauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx.idx];
+  PlayingSound &sound = (*sounds)[idx];
   if (isPlaying(sound)) { 
     sound.state = PausingState;
   } else if (isUnpausing(sound)) {
@@ -384,10 +384,10 @@ void AudioSystem::pauseSound(AudioSystemMixIdx idx)
   }
 }
 
-void AudioSystem::unpauseSound(AudioSystemMixIdx idx)
+void AudioSystem::unpauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx.idx];
+  PlayingSound &sound = (*sounds)[idx];
   if (isPaused(sound)) { 
     sound.state = UnpausingState;
   } else if (isPausing(sound)) {
@@ -395,10 +395,10 @@ void AudioSystem::unpauseSound(AudioSystemMixIdx idx)
   }
 }
 
-bool AudioSystem::isSoundPaused(AudioSystemMixIdx idx)
+bool AudioSystem::isSoundPaused(int idx)
 {
   std::lock_guard<std::mutex> guard(audio_mutex);
-  PlayingSound &sound = (*sounds)[idx.idx];
+  PlayingSound &sound = (*sounds)[idx];
   return isPaused(sound) || isPausing(sound); 
 }
 
@@ -416,9 +416,9 @@ void AudioSystem::update()
       // only unset mix_idx if it finished playing and wasn't stopped
       if (!(isStopped(sound))) { 
         if (sound.tag == SoundType) {
-          sound.sound->mix_idx.unset();
+          sound.sound->mix_idx = -1;
         } else {
-          sound.stream->mix_idx.unset();
+          sound.stream->mix_idx = -1;
         }
       }
 
@@ -427,9 +427,9 @@ void AudioSystem::update()
       if (idx != (int)sounds->size() - 1) { // not removing last sound
         sound = sounds->back();
         if (sound.tag == SoundType) {
-          sound.sound->mix_idx.set(idx);
+          sound.sound->mix_idx = idx;
         } else {
-          sound.stream->mix_idx.set(idx);
+          sound.stream->mix_idx = idx;
         }
         sounds->pop_back();
         sound_end = sounds->end();
@@ -698,12 +698,13 @@ void updateSound(PlayingSound &psound, Sound &sound)
     psound.new_volume *= (float)(*groups)[group];
   }
 
-  if (sound.usingListener()) {
+  // get relative position if max_distance set to valid value
+  if (sound.getMaxDistance() > 0) {
     psound.x = (sound.getX() - listener_x) / sound.getMaxDistance();
     psound.y = (sound.getY() - listener_y) / sound.getMaxDistance();
-  } else {
-    psound.x = sound.getX();
-    psound.y = sound.getY();
+  } else { // max_distance not set, so not using position data
+    psound.x = 0;
+    psound.y = 0;
   }
 }
 
@@ -717,12 +718,13 @@ void updateStream(PlayingSound &sound, Stream &stream)
     sound.new_volume *= (float)(*groups)[group];
   }
 
-  if (stream.usingListener()) {
+  // get relative position if max_distance set to valid value
+  if (stream.getMaxDistance() > 0) {
     sound.x = (stream.getX() - listener_x) / stream.getMaxDistance();
     sound.y = (stream.getY() - listener_y) / stream.getMaxDistance();
-  } else {
-    sound.x = stream.getX();
-    sound.y = stream.getY();
+  } else { // max_distance not set, so not using position data
+    sound.x = 0;
+    sound.y = 0;
   }
 }
 
@@ -1161,29 +1163,28 @@ namespace KameMix {
 // Sound functions
 //
 Sound::Sound() : 
-  group{-1}, volume{1.0f}, 
-  x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
+  group{-1}, mix_idx{-1}, volume{1.0f}, 
+  x{0}, y{0}, max_distance{0} { }
 
 Sound::Sound(const char *filename) : 
-  buffer(filename), group{-1}, 
-  volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
+  buffer(filename), group{-1}, mix_idx{-1},  
+  volume{1.0f}, x{0}, y{0}, max_distance{0} { }
 
 Sound::Sound(const Sound &other) : 
-  buffer(other.buffer), group{other.group}, 
+  buffer(other.buffer), group{other.group}, mix_idx{-1},
   volume{other.volume}, x{other.x}, y{other.y},
-  max_distance{other.max_distance}, use_listener{other.use_listener} { }
+  max_distance{other.max_distance} { }
 
 Sound& Sound::operator=(const Sound &other)
 {
   if (this != &other) {
-    halt();
+    halt(); // mix_idx = -1 after
     buffer = other.buffer;
     group = other.group;
     volume = other.volume;
     x = other.x;
     y = other.y;
     max_distance = other.max_distance;
-    use_listener = other.use_listener;
   }
   return *this;
 }
@@ -1238,9 +1239,6 @@ void Sound::moveBy(float dx, float dy)
 float Sound::getMaxDistance() const { return max_distance; }
 void Sound::setMaxDistance(float distance) { max_distance = distance; }
 
-void Sound::useListener(bool use_listener_) { use_listener = use_listener_; }
-bool Sound::usingListener() const { return use_listener; }
-
 int Sound::getGroup() const { return group; }
 void Sound::setGroup(int group_) { group = group_; }
 void Sound::unsetGroup() { group = -1; }
@@ -1286,7 +1284,7 @@ void Sound::fadeout(float fade_secs)
   }
 }
 
-bool Sound::isPlaying() const { return mix_idx.isSet(); }
+bool Sound::isPlaying() const { return mix_idx != -1; }
 
 bool Sound::isPlayingReal() const
 {
@@ -1323,11 +1321,10 @@ void Sound::setLoopCount(int loops)
 // Stream functions
 //
 Stream::Stream() : 
-  group{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
-{ }
+  group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f} { }
 
 Stream::Stream(const char *filename, double sec) : 
-  group{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
+  group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, max_distance{0}
 { 
   load(filename, sec); 
 }
@@ -1397,9 +1394,6 @@ void Stream::moveBy(float dx, float dy)
 float Stream::getMaxDistance() const { return max_distance; }
 void Stream::setMaxDistance(float distance) { max_distance = distance; }
 
-void Stream::useListener(bool use_listener_) { use_listener = use_listener_; }
-bool Stream::usingListener() const { return use_listener; }
-
 void Stream::play(int loops, bool paused)
 {
   fadein(-1, loops, paused);
@@ -1462,7 +1456,7 @@ void Stream::fadeout(float fade_secs)
   }
 }
 
-bool Stream::isPlaying() const { return mix_idx.isSet(); }
+bool Stream::isPlaying() const { return mix_idx != -1; }
 
 bool Stream::isPlayingReal() const
 {

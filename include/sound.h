@@ -2,7 +2,6 @@
 #define KAME_MIX_SOUND_H
 
 #include "sound_buffer.h"
-#include "declspec.h"
 
 namespace KameMix {
 
@@ -29,10 +28,8 @@ public:
   void setPos(float x_, float y_);
   void moveBy(float dx, float dy);
   float getMaxDistance() const;
+  // Must be set to greater than 0 to use position.
   void setMaxDistance(float distance);
-
-  void useListener(bool use_listener_);
-  bool usingListener() const;
 
   int getGroup() const;
   void setGroup(int group_);
@@ -56,11 +53,10 @@ public:
 private:
   SoundBuffer buffer;
   int group;
-  AudioSystemMixIdx mix_idx;
+  int mix_idx;
   float volume;
   float x, y;
   float max_distance;
-  bool use_listener;
   friend class AudioSystem;
 };
 

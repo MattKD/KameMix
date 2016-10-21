@@ -144,96 +144,81 @@ bool StreamBuffer::isLoaded() const { return sdata != nullptr; }
 
 bool StreamBuffer::fullyBuffered() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling fullyBuffered()");
-  return sdata->fully_buffered; 
+  return sdata ? sdata->fully_buffered : false;; 
 }
 
 double StreamBuffer::totalTime() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling totalTime()");
-  return sdata->total_time; 
+  return sdata ? sdata->total_time : 0; 
 }
 
 int StreamBuffer::numChannels() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling numChannels()");
-  return sdata->channels; 
+  return sdata ? sdata->channels : 0; 
 }
 
 int StreamBuffer::sampleBlockSize() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling sampleBlockSize()");
-  return sdata->channels * AudioSystem::getFormatSize(); 
+  return sdata ? sdata->channels * AudioSystem::getFormatSize() : 0; 
 }
 
 void StreamBuffer::lock() 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling lock()");
-  sdata->mutex.lock(); 
+  if (sdata) {
+    sdata->mutex.lock(); 
+  }
 }
 
 void StreamBuffer::unlock() 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling unlock()");
-  sdata->mutex.unlock(); 
+  if (sdata) {
+    sdata->mutex.unlock(); 
+  }
 }
 
 uint8_t* StreamBuffer::data() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling data()");
-  return sdata->buffer; 
+  return sdata ? sdata->buffer : nullptr; 
 }
 
 int StreamBuffer::size() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling size()");
-  return sdata->buffer_size; 
+  return sdata ? sdata->buffer_size : 0; 
 }
 
 double StreamBuffer::time() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling time()");
-  return sdata->time; 
+  return sdata ? sdata->time : -1; 
 }
 
 int StreamBuffer::endPos() const 
 { 
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling endPos()");
-  return sdata->end_pos; 
+  return sdata ? sdata->end_pos : -1; 
 }
 
 int StreamBuffer::startPos() const 
 {
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling startPos()");
-  if (sdata->time == 0.0) {
-    return 0;
-  } else if (sdata->end_pos != -1 && sdata->end_pos != sdata->buffer_size) {
-    return sdata->end_pos;
+  if (sdata) {
+    if (sdata->time == 0.0) {
+      return 0;
+    } else if (sdata->end_pos != -1 && sdata->end_pos != sdata->buffer_size) {
+      return sdata->end_pos;
+    }
   }
   return -1;
 }
 
 int StreamBuffer::getPos(double sec) const 
 {
-  assert(sdata && 
-         "StreamBuffer must be loaded before calling getPos()");
-  int sample_pos = (int)((sec - sdata->time) * AudioSystem::getFrequency());
-  int byte_pos = sample_pos * sampleBlockSize();
-  if (byte_pos < 0 || byte_pos > sdata->buffer_size) {
-    return -1;
+  if (sdata) {
+    int sample_pos = (int)((sec - sdata->time) * AudioSystem::getFrequency());
+    int byte_pos = sample_pos * sampleBlockSize();
+    if (byte_pos < 0 || byte_pos > sdata->buffer_size) {
+      return -1;
+    }
+    return byte_pos;
   }
-  return byte_pos;
+  return -1;
 }
 
 void StreamBuffer::incRefCount() 

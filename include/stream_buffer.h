@@ -79,11 +79,12 @@ public:
   */
   StreamResult swapBuffers();
     
-  // Return total duration of audio file in seconds.
+  // Return total duration of audio file in seconds, or 0 if not loaded.
   double totalTime() const; 
-  // Returns 1 for mono, 2 for stereo.
+  // Returns 1 for mono, 2 for stereo, or 0 if not loaded.
   int numChannels() const; 
-  // Returns size of audio format * number of channels in bytes.
+  // Returns size of audio format * number of channels in bytes, 
+  // or 0 if not laoded.
   int sampleBlockSize() const;
 
   // Lock to safely call data(), size(), time(), endPos(), startPos(),
@@ -93,22 +94,23 @@ public:
   // Must be called when finished with lock().
   void unlock(); 
 
-  // Pointer to currently loaded audio data in stream, is invalid after
-  // advance(), updatePos(), or swapBuffers() is successfuly called. 
+  // Returns pointer to currently loaded audio data in stream, or nullptr
+  // if not loaded. It is invalid after advance(), updatePos(), or 
+  // swapBuffers() is successfuly called. 
   uint8_t* data() const;
-  // Size in bytes of audio data in data() buffer.
+  // Returns size in bytes of audio data in data() buffer, or 0 if not loaded.
   int size() const; 
-  // Current time in whole stream in seconds.
+  // Returns current time in whole stream in seconds, or -1 if not loaded.
   double time() const; 
   // Returns byte position of 1 sample past last sample of stream in data(),
   // 0 if EOF was encountered immediatly in readMore(), or
-  // -1 if end is not in buffer. 
+  // -1 if end is not in buffer or not loaded. 
   int endPos() const; 
   // Returns byte position of start sample of stream in data(), or
-  // -1 if start is not in buffer. 
+  // -1 if start is not in buffer or not loaded. 
   int startPos() const; 
   // Returns byte position of sample at 'sec' position of stream in data(), 
-  // or -1 if sample is not in buffer. 
+  // or -1 if sample is not in buffer or not loaded. 
   int getPos(double sec) const;
 
 private:

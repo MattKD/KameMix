@@ -38,7 +38,10 @@ namespace KameMix {
 
 SoundBuffer::SoundBuffer() : sdata{nullptr} { }
 
-SoundBuffer::SoundBuffer(const char *filename) : sdata{nullptr} { load(filename); }
+SoundBuffer::SoundBuffer(const char *filename) : sdata{nullptr} 
+{ 
+  load(filename); 
+}
 
 SoundBuffer::SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
 {
@@ -77,28 +80,22 @@ int SoundBuffer::useCount() const { return sdata ? sdata->refcount.load() : 0; }
 
 uint8_t* SoundBuffer::data() 
 { 
-  assert(sdata && "SoundBuffer must be loaded before calling data()");
-  return sdata->buffer; 
+  return sdata ? sdata->buffer : nullptr; 
 }
 
 int SoundBuffer::size() const 
 { 
-  assert(sdata && "SoundBuffer must be loaded before calling size()");
-  return sdata->buffer_size; 
+  return sdata ? sdata->buffer_size : 0; 
 }
 
 int SoundBuffer::numChannels() const 
 { 
-  assert(sdata && 
-         "SoundBuffer must be loaded before calling numChannels()");
-  return sdata->channels; 
+  return sdata ? sdata->channels : 0; 
 }
 
 int SoundBuffer::sampleBlockSize() const 
 { 
-  assert(sdata && 
-         "SoundBuffer must be loaded before calling sampleBlockSize()");
-  return sdata->channels * AudioSystem::getFormatSize(); 
+  return sdata ? sdata->channels * AudioSystem::getFormatSize() : 0; 
 }
 
 void SoundBuffer::incRefCount() 

@@ -29,13 +29,14 @@ public:
   void release();
   int useCount() const;
 
-  // Pointer to currently loaded audio data.
+  // Returns pointer to currently loaded audio data, or nullptr if not loaded.
   uint8_t* data();
-  // Size in bytes of audio data in data() buffer.
+  // Returns size in bytes of audio data in data() buffer, or 0 if not loaded.
   int size() const; 
-  // Returns 1 for mono, 2 for stereo.
+  // Returns 1 for mono, 2 for stereo, or 0 if not loaded.
   int numChannels() const; 
-  // Returns size of audio format * number of channels in bytes.
+  // Returns size of audio format * number of channels in bytes,
+  // or 0 if not loaded.
   int sampleBlockSize() const;
 
 private:

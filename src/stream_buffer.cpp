@@ -10,17 +10,37 @@
 #include <cctype>
 #include <cstdlib>
 
-namespace {
-
 enum StreamType {
   VorbisType,
   WavType,
   InvalidType
 };
 
-struct SharedData : KameMix::StreamSharedData {
-  SharedData() : type{InvalidType} { }
-  ~SharedData()
+/*
+No lock required: total_time, channels, full_buffered, refcount
+
+mutex: 
+  read/write: time, buffer, buffer_size, end_pos
+
+mutex2:
+  write: time2, buffer2, buffer_size2, end_pos2, set_pos, error, SharedData2
+  read: everything except buffer
+
+Modifying functions:
+advance/updatePos/swapBuffers: 
+  time, time2, buffer, buffer2, buffer_size, buffer_size2, end_pos,
+  end_pos2, pos_set, error
+readMore/setPos: time2, buffer2, buffer_size2, end_pos2, pos_set, error
+*/
+namespace KameMix {
+
+struct StreamSharedData {
+  StreamSharedData() : total_time{0.0}, time{0.0}, time2{0.0}, buffer{nullptr},
+    buffer2{nullptr}, buffer_size{0}, buffer_size2{0}, end_pos{-1}, 
+    end_pos2{-1}, channels{0}, refcount(1), fully_buffered{false}, 
+    pos_set{false}, error{false}, type{InvalidType}  { }
+
+  ~StreamSharedData()
   {
     switch (type) {
     case VorbisType:
@@ -37,6 +57,22 @@ struct SharedData : KameMix::StreamSharedData {
     }
   }
 
+  double total_time; // total stream time in seconds
+  double time; // current time in seconds
+  double time2; // current time of buffer2 in seconds
+  uint8_t *buffer;
+  uint8_t *buffer2;
+  int buffer_size;
+  int buffer_size2; 
+  int end_pos; // 1 past end of stream in bytes, or -1 if end not in buffer
+  int end_pos2; // 1 past end of stream in bytes, or -1 if end not in buffer2
+  int channels;
+  std::atomic<int> refcount;
+  std::mutex mutex;
+  std::mutex mutex2;
+  bool fully_buffered; // whole stream fit into buffer
+  bool pos_set; // setPos called
+  bool error; // error reading
   StreamType type;
   union {
     OggVorbis_File vf;
@@ -44,11 +80,15 @@ struct SharedData : KameMix::StreamSharedData {
   };
 };
 
+}
+
+namespace {
+
 // 0.5 sec of stereo float samples at 44100 sample rate
 const int STREAM_SIZE = 22050 * sizeof(float) * 2;
 const int MIN_READ_SAMPLES = 64;
 // audio data must be aligned when placed after header data
-const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(SharedData);
+const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(KameMix::StreamSharedData);
 
 int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
                 int &end_pos, int channels, bool stop_at_eof);
@@ -60,14 +100,157 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
 
 namespace KameMix {
 
+StreamBuffer::StreamBuffer() : sdata{nullptr} {  }
+
+StreamBuffer::StreamBuffer(const char *filename, double sec) 
+  : sdata{nullptr} 
+{ 
+  load(filename, sec); 
+}
+
+StreamBuffer::StreamBuffer(const StreamBuffer &other) : sdata{other.sdata}
+{
+  incRefCount();
+}
+
+StreamBuffer& StreamBuffer::operator=(const StreamBuffer &other)
+{
+  if (this != &other) {
+    release();
+    sdata = other.sdata;
+    incRefCount();
+  }
+  return *this;
+}
+
+StreamBuffer::StreamBuffer(StreamBuffer &&other) : sdata{other.sdata}
+{
+  other.sdata = nullptr;
+}
+
+StreamBuffer& StreamBuffer::operator=(StreamBuffer &&other)
+{
+  if (this != &other) {
+    release();
+    sdata = other.sdata;
+    other.sdata = nullptr;
+  }
+  return *this;
+}
+
+StreamBuffer::~StreamBuffer() { release(); }
+
+bool StreamBuffer::isLoaded() const { return sdata != nullptr; }
+
+bool StreamBuffer::fullyBuffered() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling fullyBuffered()");
+  return sdata->fully_buffered; 
+}
+
+double StreamBuffer::totalTime() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling totalTime()");
+  return sdata->total_time; 
+}
+
+int StreamBuffer::numChannels() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling numChannels()");
+  return sdata->channels; 
+}
+
+int StreamBuffer::sampleBlockSize() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling sampleBlockSize()");
+  return sdata->channels * AudioSystem::getFormatSize(); 
+}
+
+void StreamBuffer::lock() 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling lock()");
+  sdata->mutex.lock(); 
+}
+
+void StreamBuffer::unlock() 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling unlock()");
+  sdata->mutex.unlock(); 
+}
+
+uint8_t* StreamBuffer::data() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling data()");
+  return sdata->buffer; 
+}
+
+int StreamBuffer::size() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling size()");
+  return sdata->buffer_size; 
+}
+
+double StreamBuffer::time() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling time()");
+  return sdata->time; 
+}
+
+int StreamBuffer::endPos() const 
+{ 
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling endPos()");
+  return sdata->end_pos; 
+}
+
+int StreamBuffer::startPos() const 
+{
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling startPos()");
+  if (sdata->time == 0.0) {
+    return 0;
+  } else if (sdata->end_pos != -1 && sdata->end_pos != sdata->buffer_size) {
+    return sdata->end_pos;
+  }
+  return -1;
+}
+
+int StreamBuffer::getPos(double sec) const 
+{
+  assert(sdata && 
+         "StreamBuffer must be loaded before calling getPos()");
+  int sample_pos = (int)((sec - sdata->time) * AudioSystem::getFrequency());
+  int byte_pos = sample_pos * sampleBlockSize();
+  if (byte_pos < 0 || byte_pos > sdata->buffer_size) {
+    return -1;
+  }
+  return byte_pos;
+}
+
+void StreamBuffer::incRefCount() 
+{ 
+  if (sdata) {
+    sdata->refcount.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
 bool StreamBuffer::allocData()
 {
-  sdata = (SharedData*)km_malloc_(STREAM_SIZE * 2 + HEADER_SIZE);
+  sdata = (StreamSharedData*)km_malloc_(STREAM_SIZE * 2 + HEADER_SIZE);
   if (!sdata) {
     return false;
   }
 
-  SharedData *sdata = new (this->sdata) SharedData(); 
+  StreamSharedData *sdata = new (this->sdata) StreamSharedData(); 
   sdata->buffer = ((uint8_t*)sdata) + HEADER_SIZE;
   sdata->buffer2 = sdata->buffer + STREAM_SIZE;
   return true;
@@ -78,11 +261,10 @@ void StreamBuffer::release()
   if (sdata) {
     if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
       std::atomic_thread_fence(std::memory_order_acquire);
-      SharedData *sdata = static_cast<SharedData*>(this->sdata);
-      sdata->~SharedData();
-      km_free(this->sdata); 
+      sdata->~StreamSharedData();
+      km_free(sdata); 
     }
-    this->sdata = nullptr;
+    sdata = nullptr;
   }
 }
 
@@ -130,7 +312,6 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
     return false;
   }
 
-  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
@@ -181,7 +362,6 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   if (!allocData()) { // failed to allocate
     return false;
   }
-  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
@@ -284,7 +464,6 @@ bool StreamBuffer::readMore()
     return false;
   }
 
-  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   switch (sdata->type) {
   case VorbisType:
     sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, STREAM_SIZE, 
@@ -328,7 +507,6 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     sec = 0.0;
   }
 
-  SharedData *sdata = static_cast<SharedData*>(this->sdata);
   switch (sdata->type) {
   case VorbisType:
     if (ov_time_seek(&sdata->vf, sec) != 0) {

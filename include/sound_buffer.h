@@ -9,99 +9,37 @@
 
 namespace KameMix {
 
-struct SoundSharedData {
-  SoundSharedData(uint8_t *buf, int buf_len, int channels) 
-    : buffer{buf}, refcount{1}, buffer_size{buf_len}, channels{channels} 
-  { }
-  uint8_t *buffer;
-  std::atomic<int> refcount;
-  int buffer_size;
-  int channels;
-};
+struct SoundSharedData;
 
 class KAMEMIX_DECLSPEC SoundBuffer {
 public:
-  SoundBuffer() : sdata{nullptr} { }
-
-  SoundBuffer(const char *filename) : sdata{nullptr} { load(filename); }
-
-  SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
-  {
-    incRefCount();
-  }
-
-  SoundBuffer(SoundBuffer &&other) : sdata{other.sdata}
-  {
-    other.sdata = nullptr;
-  }
-
-  SoundBuffer& operator=(const SoundBuffer &other)
-  {
-    if (this != &other) {
-      release();
-      sdata = other.sdata;
-      incRefCount();
-    }
-    return *this;
-  }
-
-  SoundBuffer& operator=(SoundBuffer &&other)
-  {
-    if (this != &other) {
-      release();
-      sdata = other.sdata;
-      other.sdata = nullptr;
-    }
-    return *this;
-  }
-
-  ~SoundBuffer() { release(); }
+  SoundBuffer();
+  explicit SoundBuffer(const char *filename);
+  SoundBuffer(const SoundBuffer &other);
+  SoundBuffer(SoundBuffer &&other);
+  SoundBuffer& operator=(const SoundBuffer &other);
+  SoundBuffer& operator=(SoundBuffer &&other);
+  ~SoundBuffer();
 
   bool load(const char *filename);
   bool loadOGG(const char *filename);
   bool loadWAV(const char *filename);
-  bool isLoaded() const { return sdata != nullptr; }
+  bool isLoaded() const;
   // Release loaded file and free allocated data. isLoaded() is false after.
   void release();
-  int useCount() const { return sdata ? sdata->refcount.load() : 0; }
+  int useCount() const;
 
   // Pointer to currently loaded audio data.
-  uint8_t* data() 
-  { 
-    assert(sdata && "SoundBuffer must be loaded before calling data()");
-    return sdata->buffer; 
-  }
-
+  uint8_t* data();
   // Size in bytes of audio data in data() buffer.
-  int size() const 
-  { 
-    assert(sdata && "SoundBuffer must be loaded before calling size()");
-    return sdata->buffer_size; 
-  }
-
+  int size() const; 
   // Returns 1 for mono, 2 for stereo.
-  int numChannels() const 
-  { 
-    assert(sdata && 
-           "SoundBuffer must be loaded before calling numChannels()");
-    return sdata->channels; 
-  }
-
+  int numChannels() const; 
   // Returns size of audio format * number of channels in bytes.
-  int sampleBlockSize() const 
-  { 
-    assert(sdata && 
-           "SoundBuffer must be loaded before calling sampleBlockSize()");
-    return sdata->channels * AudioSystem::getFormatSize(); 
-  }
+  int sampleBlockSize() const;
 
 private:
-  void incRefCount() 
-  { 
-    if (sdata) {
-      sdata->refcount.fetch_add(1, std::memory_order_relaxed);
-    }
-  }
+  void incRefCount();
 
   SoundSharedData *sdata;
 };

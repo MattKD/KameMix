@@ -11,6 +11,20 @@
 #include <cstdlib>
 #include <limits>
 
+namespace KameMix {
+
+struct SoundSharedData {
+  SoundSharedData(uint8_t *buf, int buf_len, int channels) 
+    : buffer{buf}, refcount{1}, buffer_size{buf_len}, channels{channels} 
+  { }
+  uint8_t *buffer;
+  std::atomic<int> refcount;
+  int buffer_size;
+  int channels;
+};
+
+}
+
 namespace {
 
 // audio data must be aligned when placed after header data
@@ -19,7 +33,80 @@ const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
 
 }
 
+
 namespace KameMix {
+
+SoundBuffer::SoundBuffer() : sdata{nullptr} { }
+
+SoundBuffer::SoundBuffer(const char *filename) : sdata{nullptr} { load(filename); }
+
+SoundBuffer::SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
+{
+  incRefCount();
+}
+
+SoundBuffer::SoundBuffer(SoundBuffer &&other) : sdata{other.sdata}
+{
+  other.sdata = nullptr;
+}
+
+SoundBuffer& SoundBuffer::operator=(const SoundBuffer &other)
+{
+  if (this != &other) {
+    release();
+    sdata = other.sdata;
+    incRefCount();
+  }
+  return *this;
+}
+
+SoundBuffer& SoundBuffer::operator=(SoundBuffer &&other)
+{
+  if (this != &other) {
+    release();
+    sdata = other.sdata;
+    other.sdata = nullptr;
+  }
+  return *this;
+}
+
+SoundBuffer::~SoundBuffer() { release(); }
+
+bool SoundBuffer::isLoaded() const { return sdata != nullptr; }
+int SoundBuffer::useCount() const { return sdata ? sdata->refcount.load() : 0; }
+
+uint8_t* SoundBuffer::data() 
+{ 
+  assert(sdata && "SoundBuffer must be loaded before calling data()");
+  return sdata->buffer; 
+}
+
+int SoundBuffer::size() const 
+{ 
+  assert(sdata && "SoundBuffer must be loaded before calling size()");
+  return sdata->buffer_size; 
+}
+
+int SoundBuffer::numChannels() const 
+{ 
+  assert(sdata && 
+         "SoundBuffer must be loaded before calling numChannels()");
+  return sdata->channels; 
+}
+
+int SoundBuffer::sampleBlockSize() const 
+{ 
+  assert(sdata && 
+         "SoundBuffer must be loaded before calling sampleBlockSize()");
+  return sdata->channels * AudioSystem::getFormatSize(); 
+}
+
+void SoundBuffer::incRefCount() 
+{ 
+  if (sdata) {
+    sdata->refcount.fetch_add(1, std::memory_order_relaxed);
+  }
+}
 
 bool SoundBuffer::load(const char *filename)
 {

@@ -1154,3 +1154,166 @@ void streamFinished(Stream *stream)
 
 } // end anon namespace
 
+//
+// Sound functions
+//
+Sound::Sound() : 
+  group{-1}, volume{1.0f}, 
+  x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
+
+Sound::Sound(const char *filename) : 
+  buffer(filename), group{-1}, 
+  volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} { }
+
+Sound::Sound(const Sound &other) : 
+  buffer(other.buffer), group{other.group}, 
+  volume{other.volume}, x{other.x}, y{other.y},
+  max_distance{other.max_distance}, use_listener{other.use_listener} { }
+
+Sound& Sound::operator=(const Sound &other)
+{
+  if (this != &other) {
+    halt();
+    buffer = other.buffer;
+    group = other.group;
+    volume = other.volume;
+    x = other.x;
+    y = other.y;
+    max_distance = other.max_distance;
+    use_listener = other.use_listener;
+  }
+  return *this;
+}
+
+Sound::~Sound() { fadeout(0); }
+
+bool Sound::load(const char *filename) 
+{ 
+  halt();
+  return buffer.load(filename); 
+}
+
+bool Sound::loadOGG(const char *filename) 
+{ 
+  halt();
+  return buffer.loadOGG(filename); 
+}
+
+bool Sound::loadWAV(const char *filename) 
+{ 
+  halt();
+  return buffer.loadWAV(filename); 
+}
+
+void Sound::release() 
+{ 
+  halt(); 
+  buffer.release(); 
+}
+
+bool Sound::isLoaded() const { return buffer.isLoaded(); }
+int Sound::useCount() const { return buffer.useCount(); }
+
+float Sound::getVolume() const { return volume; }
+void Sound::setVolume(float v) { volume = v; }
+
+float Sound::getX() const { return x; }
+float Sound::getY() const { return y; }
+
+void Sound::setPos(float x_, float y_)
+{
+  x = x_;
+  y = y_;
+}
+
+void Sound::moveBy(float dx, float dy)
+{
+  x += dx;
+  y += dy;
+}
+
+float Sound::getMaxDistance() const { return max_distance; }
+void Sound::setMaxDistance(float distance) { max_distance = distance; }
+
+void Sound::useListener(bool use_listener_) { use_listener = use_listener_; }
+bool Sound::usingListener() const { return use_listener; }
+
+int Sound::getGroup() const { return group; }
+void Sound::setGroup(int group_) { group = group_; }
+void Sound::unsetGroup() { group = -1; }
+
+void Sound::play(int loops, bool paused) 
+{
+  fadein(-1, loops, paused);
+}
+
+void Sound::fadein(float fade_secs, int loops, bool paused) 
+{
+  if (buffer.isLoaded()) {
+    halt();
+    AudioSystem::addSound(this, loops, 0, paused, fade_secs);
+  }
+}
+
+void Sound::playAt(double sec, int loops, bool paused)
+{
+  fadeinAt(sec, -1, loops, paused);
+}
+
+void Sound::fadeinAt(double sec, float fade_secs, int loops, bool paused) 
+{
+  if (buffer.isLoaded()) {
+    halt();
+    int sample_pos = (int) (sec * AudioSystem::getFrequency());
+    int byte_pos = sample_pos * buffer.sampleBlockSize();
+    if (byte_pos < 0 || byte_pos >= buffer.size()) {
+      byte_pos = 0;
+    }
+    AudioSystem::addSound(this, loops, byte_pos, paused, fade_secs);
+  }
+}
+
+void Sound::halt() { fadeout(0); } // instant remove
+void Sound::stop() { fadeout(-1); } // removes with min fade
+
+void Sound::fadeout(float fade_secs)
+{
+  if (isPlaying()) {
+    AudioSystem::removeSound(this, fade_secs);
+  }
+}
+
+bool Sound::isPlaying() const { return mix_idx.isSet(); }
+
+bool Sound::isPlayingReal() const
+{
+  return isPlaying() && AudioSystem::isSoundFinished(mix_idx) == false;
+}
+
+void Sound::pause()
+{
+  if (isPlaying()) {
+    AudioSystem::pauseSound(mix_idx);
+  }
+}
+
+void Sound::unpause()
+{
+  if (isPlaying()) {
+    AudioSystem::unpauseSound(mix_idx);
+  }
+}
+
+bool Sound::isPaused() const
+{
+  return isPlaying() && AudioSystem::isSoundPaused(mix_idx);
+}
+
+void Sound::setLoopCount(int loops)
+{
+  if (isPlaying()) {
+    AudioSystem::setLoopCount(mix_idx, loops);
+  }
+}
+
+

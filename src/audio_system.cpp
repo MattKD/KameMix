@@ -10,6 +10,7 @@
 #include <cmath>
 #include <vector>
 #include <thread>
+#include <mutex>
 #include <numeric>
 
 using namespace KameMix;

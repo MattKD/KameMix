@@ -10,6 +10,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <limits>
+#include <atomic>
 
 namespace KameMix {
 

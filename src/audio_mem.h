@@ -2,6 +2,7 @@
 #define KAME_MIX_AUDIO_MEM_H
 
 #include <new>
+#include "audio_system.h"
 
 namespace KameMix {
 

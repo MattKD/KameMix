@@ -9,6 +9,9 @@
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 enum StreamType {
   VorbisType,

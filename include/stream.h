@@ -1,198 +1,62 @@
 #ifndef KAME_MIX_STREAM_H
 #define KAME_MIX_STREAM_H
 
-#include "audio_system.h"
 #include "stream_buffer.h"
 #include "declspec.h"
-#include <thread>
 
 namespace KameMix {
 
 class KAMEMIX_DECLSPEC Stream {
 public:
-  Stream() : 
-    group{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
-  { }
-
-  explicit
-  Stream(const char *filename, double sec = 0.0) : 
-    group{-1}, volume{1.0f}, x{0}, y{0}, max_distance{1.0f}, use_listener{false} 
-  { 
-    load(filename, sec); 
-  }
-
+  Stream();
+  explicit Stream(const char *filename, double sec = 0.0);
   Stream(const Stream &other) = delete;
   Stream& operator=(const Stream &other) = delete;
+  ~Stream();
 
-  ~Stream() { halt(); }
+  bool load(const char *filename, double sec = 0.0);
+  bool loadOGG(const char *filename, double sec = 0.0);
+  bool loadWAV(const char *filename, double sec = 0.0);
+  void release();
+  bool isLoaded();
 
-  bool load(const char *filename, double sec = 0.0) 
-  { 
-    halt();
-    if (buffer.load(filename, sec)) {
-      readMore();
-      return true;
-    }
-    return false;
-  }
+  float getVolume() const;
+  void setVolume(float v);
 
-  bool loadOGG(const char *filename, double sec = 0.0) 
-  { 
-    halt();
-    if (buffer.loadOGG(filename, sec)) {
-      readMore();
-      return true;
-    }
-    return false;
-  }
+  int getGroup() const;
+  void setGroup(int group_);
+  void unsetGroup();
 
-  bool loadWAV(const char *filename, double sec = 0.0) 
-  { 
-    halt();
-    if (buffer.loadWAV(filename, sec)) {
-      readMore();
-      return true;
-    }
-    return false;
-  }
+  float getX() const;
+  float getY() const;
+  void setPos(float x_, float y_);
+  void moveBy(float dx, float dy);
+  float getMaxDistance() const;
+  void setMaxDistance(float distance);
 
-  void release() 
-  { 
-    halt(); 
-    buffer.release(); 
-  }
+  void useListener(bool use_listener_);
+  bool usingListener() const;
 
-  bool isLoaded() { return buffer.isLoaded(); }
-
-  float getVolume() const { return volume; }
-  void setVolume(float v) { volume = v; }
-
-  int getGroup() const { return group; }
-  void setGroup(int group_) { group = group_; }
-  void unsetGroup() { group = -1; }
-
-  float getX() const { return x; }
-  float getY() const { return y; }
-  void setPos(float x_, float y_)
-  {
-    x = x_;
-    y = y_;
-  }
-  void moveBy(float dx, float dy)
-  {
-    x += dx;
-    y += dy;
-  }
-  float getMaxDistance() const { return max_distance; }
-  void setMaxDistance(float distance) { max_distance = distance; }
-
-  void useListener(bool use_listener_) { use_listener = use_listener_; }
-  bool usingListener() const { return use_listener; }
-
-  void play(int loops = 0, bool paused = false)
-  {
-    fadein(-1, loops, paused);
-  }
-
-  void fadein(float fade_secs, int loops = 0, bool paused = false) 
-  {
-    if (isLoaded()) {
-      halt();
-      // After stop, startPos can be called without lock
-      int start_pos = buffer.startPos();
-      if (start_pos == -1) { // start not in buffer
-        // read start of stream into main buffer, so no swap needed
-        if (!buffer.setPos(0.0, true)) { 
-          return;
-        }
-        readMore(); 
-        start_pos = 0;
-      }
-
-      AudioSystem::addStream(this, loops, start_pos, paused, fade_secs);
-    }
-  }
-
-  void playAt(double sec, int loops = 0, bool paused = false)
-  {
-    fadeinAt(sec, -1, loops, paused);
-  }
-
-  void fadeinAt(double sec, float fade_secs, int loops = 0, bool paused = false) 
-  {
-    if (isLoaded()) {
-      halt();
-      if (sec < 0.0 || sec >= buffer.totalTime()) {
-        sec = 0.0;
-      }
-      // After stop, getPos can be called without lock
-      int byte_pos = buffer.getPos(sec);
-      if (byte_pos == -1) { // pos not in buffer
-        // read stream at new pos into main buffer, so no swap needed
-        if (!buffer.setPos(sec, true)) { 
-          return;
-        }
-
-        readMore();
-        byte_pos = 0;
-      }
-
-      AudioSystem::addStream(this, loops, byte_pos, paused, fade_secs);
-    }
-  }
-
-  void halt() { fadeout(0); } // instant remove
-  void stop() { fadeout(-1); } // removes with min fade
+  void play(int loops = 0, bool paused = false);
+  void fadein(float fade_secs, int loops = 0, bool paused = false); 
+  void playAt(double sec, int loops = 0, bool paused = false);
+  void fadeinAt(double sec, float fade_secs, int loops = 0, 
+                bool paused = false); 
+  void halt(); // instant remove
+  void stop(); // removes with min fade
 
   // fade_secs = 0 for instant remove, same as halt(); -1 for fastest fade,
   // same as stop()
-  void fadeout(float fade_secs)
-  {
-    if (isPlaying()) {
-      AudioSystem::removeStream(this, fade_secs);
-    }
-  }
-
-  bool isPlaying() const { return mix_idx.isSet(); }
-
-  bool isPlayingReal() const
-  {
-    return isPlaying() && AudioSystem::isSoundFinished(mix_idx) == false;
-  }
-
-  void pause()
-  {
-    if (isPlaying()) {
-      AudioSystem::pauseSound(mix_idx);
-    }
-  }
-
-  void unpause()
-  {
-    if (isPlaying()) {
-      AudioSystem::unpauseSound(mix_idx);
-    }
-  }
-
-  bool isPaused() const
-  {
-    return isPlaying() && AudioSystem::isSoundPaused(mix_idx);
-  }
-
-  void setLoopCount(int loops)
-  {
-    if (isPlaying()) {
-      AudioSystem::setLoopCount(mix_idx, loops);
-    }
-  }
+  void fadeout(float fade_secs);
+  bool isPlaying() const;
+  bool isPlayingReal() const;
+  void pause();
+  void unpause();
+  bool isPaused() const;
+  void setLoopCount(int loops);
 
 private:
-  void readMore()
-  {
-    StreamBuffer &buf = buffer;
-    std::thread thrd([buf]() mutable { buf.readMore(); }); 
-    thrd.detach();
-  }
+  void readMore();
 
   StreamBuffer buffer;
   int group;

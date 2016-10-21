@@ -1,11 +1,8 @@
 #ifndef KAME_MIX_SOUND_BUFFER_H
 #define KAME_MIX_SOUND_BUFFER_H
 
-#include "audio_system.h"
 #include "declspec.h"
 #include <cstdint>
-#include <cstddef>
-#include <atomic>
 
 namespace KameMix {
 

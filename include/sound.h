@@ -1,7 +1,6 @@
 #ifndef KAME_MIX_SOUND_H
 #define KAME_MIX_SOUND_H
 
-#include "audio_system.h"
 #include "sound_buffer.h"
 #include "declspec.h"
 

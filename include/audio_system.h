@@ -47,26 +47,15 @@ public:
   static void setGroupVolume(int group, double volume);
   static double getGroupVolume(int group);
 
-  static int getFrequency() { return frequency; }
-  static int getChannels() { return channels; }
-  static OutAudioFormat getFormat() { return format; }
-
+  static int getFrequency();
+  static int getChannels();
+  static OutAudioFormat getFormat();
   // Size in bytes of sample output format
-  static int getFormatSize() 
-  { 
-    switch (format) {
-    case OutFormat_Float:
-      return sizeof(float);
-    case OutFormat_S16:
-      return sizeof(int16_t);
-    }
-    assert("Unknown AudioFormat");
-    return 0;
-  }
+  static int getFormatSize();
 
-  static MallocFunc getMalloc() { return user_malloc; }
-  static FreeFunc getFree() { return user_free; }
-  static ReallocFunc getRealloc() { return user_realloc; }
+  static MallocFunc getMalloc();
+  static FreeFunc getFree();
+  static ReallocFunc getRealloc();
 
   // User callbacks to call when a Sound or Stream finishes playing.
   // All AudioSystem functions are thread safe to use in callbacks besides 
@@ -94,13 +83,6 @@ private:
   static bool isSoundPaused(int idx); 
   static void setLoopCount(int idx, int loops);
   static void audioCallback(void *udata, uint8_t *stream, const int len);
-
-  static int channels;
-  static int frequency;
-  static OutAudioFormat format;
-  static MallocFunc user_malloc;
-  static FreeFunc user_free;
-  static ReallocFunc user_realloc;
 
   friend class Sound;
   friend class Stream;

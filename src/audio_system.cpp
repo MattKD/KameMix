@@ -92,6 +92,13 @@ SoundFinishedFunc sound_finished;
 StreamFinishedFunc stream_finished;
 void *sound_finished_data;
 void *stream_finished_data;
+int channels;
+int frequency;
+OutAudioFormat format;
+MallocFunc user_malloc;
+FreeFunc user_free;
+ReallocFunc user_realloc;
+
 
 void initPlayingSound_(PlayingSound &ps, int loops, int buf_pos,
                        bool paused, float fade);
@@ -156,12 +163,26 @@ struct CopyStereo {
 
 namespace KameMix {
 
-int AudioSystem::channels;
-int AudioSystem::frequency;
-OutAudioFormat AudioSystem::format;
-MallocFunc AudioSystem::user_malloc;
-FreeFunc AudioSystem::user_free;
-ReallocFunc AudioSystem::user_realloc;
+int AudioSystem::getFrequency() { return frequency; }
+int AudioSystem::getChannels() { return channels; }
+OutAudioFormat AudioSystem::getFormat() { return format; }
+
+// Size in bytes of sample output format
+int AudioSystem::getFormatSize() 
+{ 
+  switch (format) {
+  case OutFormat_Float:
+    return sizeof(float);
+  case OutFormat_S16:
+    return sizeof(int16_t);
+  }
+  assert("Unknown AudioFormat");
+  return 0;
+}
+
+MallocFunc AudioSystem::getMalloc() { return user_malloc; }
+FreeFunc AudioSystem::getFree() { return user_free; }
+ReallocFunc AudioSystem::getRealloc() { return user_realloc; }
 
 void AudioSystem::setLoopCount(int idx, int loops)
 {
@@ -239,7 +260,7 @@ void AudioSystem::setStreamFinished(StreamFinishedFunc func, void *udata)
 }
 
 bool AudioSystem::init(int freq, int sample_buf_size, 
-                       OutAudioFormat format,
+                       OutAudioFormat format_,
                        MallocFunc custom_malloc,
                        FreeFunc custom_free,
                        ReallocFunc custom_realloc)
@@ -254,7 +275,7 @@ bool AudioSystem::init(int freq, int sample_buf_size,
     }
   }
 
-  AudioSystem::format = format;
+  format = format_;
   user_malloc = custom_malloc == nullptr ? malloc : custom_malloc;
   user_free = custom_free == nullptr ? free : custom_free;
   user_realloc = custom_realloc == nullptr ? realloc : custom_realloc;
@@ -275,8 +296,8 @@ bool AudioSystem::init(int freq, int sample_buf_size,
     return false;
   }
 
-  AudioSystem::frequency = dev_spec.freq;
-  AudioSystem::channels = dev_spec.channels;
+  frequency = dev_spec.freq;
+  channels = dev_spec.channels;
 
   // AudioSystem::format must have alread been set above
   audio_tmp_buf_len = 
@@ -293,7 +314,7 @@ bool AudioSystem::init(int freq, int sample_buf_size,
   master_volume = 1.0f;
   listener_x = 0;
   listener_y = 0;
-  secs_per_callback = (double)dev_spec.samples / AudioSystem::frequency;
+  secs_per_callback = (double)dev_spec.samples / frequency;
 
   sounds = km_new<SoundBuf>();
   sounds->reserve(256);

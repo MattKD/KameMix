@@ -128,6 +128,7 @@ void decrementLoopCount(PlayingSound &sound);
 bool streamSwapNeeded(PlayingSound &sound, StreamBuffer &stream_buf);
 bool streamSwapBuffers(PlayingSound &sound, StreamBuffer &stream_buf);
 VolumeData getVolumeData(PlayingSound &sound);
+
 void setSoundLoopCount(int idx, int loops);
 bool isSoundFinished(int idx);
 void pauseSound(int idx);
@@ -140,6 +141,7 @@ void removeSound(int idx, float fade_secs);
 
 void soundFinished(Sound *sound);
 void streamFinished(Stream *stream);
+
 void applyPosition(double rel_x, double rel_y, VolumeData &vdata);
 void clamp(float *buf, int len);
 void clamp(int16_t *target, int32_t *src, int len);
@@ -265,27 +267,31 @@ void System::setStreamFinished(StreamFinishedFunc func, void *udata)
   system_data.stream_finished_data = udata;
 }
 
+void System::setAlloc(MallocFunc custom_malloc, FreeFunc custom_free,
+                      ReallocFunc custom_realloc)
+{
+  if (custom_malloc && custom_free && custom_realloc) { // all user defined
+    system_data.user_malloc = custom_malloc;
+    system_data.user_free = custom_free;
+    system_data.user_realloc = custom_realloc;
+  }
+}
+
 bool System::init(int freq, int sample_buf_size, 
-                       OutAudioFormat format_,
-                       MallocFunc custom_malloc,
-                       FreeFunc custom_free,
-                       ReallocFunc custom_realloc)
+                       OutAudioFormat format_)
 {
   if (SDL_Init(SDL_INIT_AUDIO) < 0) {
     return false;
   }
 
-  if (custom_malloc || custom_free || custom_realloc) { // at least one set
-    if (!(custom_malloc && custom_free && custom_realloc)) { // not all set
-      return false;
-    }
+  if (!system_data.user_malloc || !system_data.user_free ||
+      !system_data.user_realloc) { // not all set
+    system_data.user_malloc = malloc;
+    system_data.user_free = free;
+    system_data.user_realloc = realloc;
   }
 
   system_data.format = format_;
-  system_data.user_malloc = custom_malloc == nullptr ? malloc : custom_malloc;
-  system_data.user_free = custom_free == nullptr ? free : custom_free;
-  system_data.user_realloc = custom_realloc == nullptr ? realloc : custom_realloc;
-
   int allowed_changes = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE;
   SDL_AudioSpec spec_want = { 0 };
   SDL_AudioSpec dev_spec = { 0 };

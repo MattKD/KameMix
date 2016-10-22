@@ -25,18 +25,23 @@ enum OutAudioFormat {
 class KAMEMIX_DECLSPEC System {
 public:
   // Initializes System. Must be called before all other KameMix 
-  // functions. Only call once in application, even if shutdown is called. 
+  // functions, except setAlloc. If called again after a shutdown, all
+  // Sounds and Streams must be released and reloaded.
   static bool init(int freq = 44100, 
                    int sample_buf_size = 2048, 
-                   OutAudioFormat format = OutFormat_Float,
-                   MallocFunc custom_malloc = nullptr,
-                   FreeFunc custom_free = nullptr,
-                   ReallocFunc custom_realloc = nullptr);
+                   OutAudioFormat format = OutFormat_Float);
   static void shutdown();
   // Updates the volume and position of all playing sounds/streams, and
   // removes finished/stopped ones. Should be called after every game frame.
   // Must not be called concurrently with any other KameMix functions.
   static void update();
+
+  // All three must be set before init if using custom allocators.
+  static void setAlloc(MallocFunc custom_malloc, FreeFunc custom_free,
+                       ReallocFunc custom_realloc);
+  static MallocFunc getMalloc();
+  static FreeFunc getFree();
+  static ReallocFunc getRealloc();
 
   // number of sounds playing including paused
   static int numberPlaying(); 
@@ -53,9 +58,6 @@ public:
   // Size in bytes of sample output format
   static int getFormatSize();
 
-  static MallocFunc getMalloc();
-  static FreeFunc getFree();
-  static ReallocFunc getRealloc();
 
   // User callbacks to call when a Sound or Stream finishes playing.
   // All System functions are thread safe to use in callbacks besides 

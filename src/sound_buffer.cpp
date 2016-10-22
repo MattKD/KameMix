@@ -96,7 +96,7 @@ int SoundBuffer::numChannels() const
 
 int SoundBuffer::sampleBlockSize() const 
 { 
-  return sdata ? sdata->channels * AudioSystem::getFormatSize() : 0; 
+  return sdata ? sdata->channels * System::getFormatSize() : 0; 
 }
 
 void SoundBuffer::incRefCount() 
@@ -155,7 +155,7 @@ bool SoundBuffer::loadWAV(const char *filename)
 
   const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
   const SDL_AudioFormat dst_format = getOutputFormat();
-  const int dst_freq = AudioSystem::getFrequency();
+  const int dst_freq = System::getFrequency();
   const int channels = wf.num_channels >= 2 ? 2 : 1;
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, 
@@ -201,7 +201,7 @@ bool SoundBuffer::loadWAV(const char *filename)
       return false;
     }
     
-    const int block_size = channels * AudioSystem::getFormatSize();
+    const int block_size = channels * System::getFormatSize();
     audio_buf_len = (cvt.len_cvt / block_size) * block_size;
     // try to shrink if at least 1KB unused
     if ((cvt.len * cvt.len_mult - audio_buf_len) > 1024) {
@@ -314,7 +314,7 @@ bool SoundBuffer::loadOGG(const char *filename)
         // freq is different in this stream than last, or reached end of
         // physical straem so convert all data not converted yet if necessary 
         if (src_freq != last_src_freq || stream_idx == 0) {
-          const int dst_freq = AudioSystem::getFrequency();
+          const int dst_freq = System::getFrequency();
           const SDL_AudioFormat dst_format = getOutputFormat();
           SDL_AudioCVT cvt;
           if (SDL_BuildAudioCVT(&cvt, AUDIO_F32SYS, channels, last_src_freq, 
@@ -328,7 +328,7 @@ bool SoundBuffer::loadOGG(const char *filename)
             if (SDL_ConvertAudio(&cvt) < 0) {
               return false;
             }
-            const int block_size = channels * AudioSystem::getFormatSize();
+            const int block_size = channels * System::getFormatSize();
             cvt_buf += (cvt.len_cvt / block_size) * block_size;
             dst = (float*)cvt_buf;
           }

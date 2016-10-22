@@ -1,7 +1,7 @@
 #ifndef KAME_MIX_SDL_HELPER_H
 #define KAME_MIX_SDL_HELPER_H
 
-#include "audio_system.h"
+#include "system.h"
 #include "wav_loader.h"
 #include <SDL_audio.h>
 
@@ -40,7 +40,7 @@ SDL_AudioFormat WAV_formatToSDL(const KameMix_WavFormat format)
 inline
 SDL_AudioFormat getOutputFormat()
 {
-  return outFormatToSDL(AudioSystem::getFormat());
+  return outFormatToSDL(System::getFormat());
 }
 
 }

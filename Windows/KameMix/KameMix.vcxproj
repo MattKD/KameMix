@@ -154,12 +154,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\include\audio_system.h" />
     <ClInclude Include="..\..\include\declspec.h" />
     <ClInclude Include="..\..\include\sound.h" />
     <ClInclude Include="..\..\include\sound_buffer.h" />
     <ClInclude Include="..\..\include\stream.h" />
     <ClInclude Include="..\..\include\stream_buffer.h" />
+    <ClInclude Include="..\..\include\system.h" />
     <ClInclude Include="..\..\src\audio_mem.h" />
     <ClInclude Include="..\..\src\scope_exit.h" />
     <ClInclude Include="..\..\src\sdl_helper.h" />
@@ -168,9 +168,9 @@
     <ClInclude Include="..\..\src\wav_loader.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\audio_system.cpp" />
     <ClCompile Include="..\..\src\sound_buffer.cpp" />
     <ClCompile Include="..\..\src\stream_buffer.cpp" />
+    <ClCompile Include="..\..\src\system.cpp" />
     <ClCompile Include="..\..\src\vorbis_helper.cpp" />
     <ClCompile Include="..\..\src\wav_loader.cpp" />
   </ItemGroup>

@@ -1,9 +1,9 @@
-#include "audio_system.h"
+#include "system.h"
 #include "vorbis_helper.h"
 #include "sdl_helper.h"
 #include <SDL_audio.h>
 
-using KameMix::AudioSystem;
+using KameMix::System;
 
 namespace {
 
@@ -11,7 +11,7 @@ inline
 int64_t convertedSize(int src_freq, SDL_AudioFormat src_format, 
                       int channels, int64_t blocks)
 {
-  const int dst_freq = AudioSystem::getFrequency(); 
+  const int dst_freq = System::getFrequency(); 
   const SDL_AudioFormat dst_format = KameMix::getOutputFormat();
   const int format_size = SDL_AUDIO_BITSIZE(src_format) / 8;
   const int bytes_per_block = channels * format_size;

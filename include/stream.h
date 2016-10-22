@@ -61,7 +61,7 @@ private:
   float volume;
   float x, y;
   float max_distance;
-  friend class AudioSystem;
+  friend class System;
 };
 
 } // end namespace KameMix

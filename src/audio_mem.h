@@ -2,7 +2,7 @@
 #define KAME_MIX_AUDIO_MEM_H
 
 #include <new>
-#include "audio_system.h"
+#include "system.h"
 
 namespace KameMix {
 
@@ -13,13 +13,13 @@ namespace KameMix {
 inline
 void km_free(void *ptr)
 {
-  AudioSystem::getFree()(ptr);
+  System::getFree()(ptr);
 }
 
 inline
 void* km_malloc_(size_t len)
 {
-  return KameMix::AudioSystem::getMalloc()(len);
+  return KameMix::System::getMalloc()(len);
 }
 
 inline
@@ -36,7 +36,7 @@ void* km_malloc(size_t len)
 inline
 void* km_realloc_(void *ptr, size_t len)
 {
-  return KameMix::AudioSystem::getRealloc()(ptr, len);
+  return KameMix::System::getRealloc()(ptr, len);
 }
 
 inline
@@ -53,7 +53,7 @@ void* km_realloc(void *ptr, size_t len)
 template <class T>
 T* km_new()
 {
-  T *buf = (T*) KameMix::AudioSystem::getMalloc()(sizeof(T));
+  T *buf = (T*) KameMix::System::getMalloc()(sizeof(T));
   if (buf) {
     buf = new (buf) T();
     return buf;
@@ -65,7 +65,7 @@ T* km_new()
 template <class T>
 T* km_new_n(size_t num)
 {
-  T *buf = (T*) KameMix::AudioSystem::getMalloc()(num * sizeof(T));
+  T *buf = (T*) KameMix::System::getMalloc()(num * sizeof(T));
   if (buf) {
     T *tmp = buf;
     T *buf_end = buf + num;
@@ -83,7 +83,7 @@ template <class T>
 void km_delete(T *ptr)
 {
   ptr->~T();
-  KameMix::AudioSystem::getFree()(ptr);
+  KameMix::System::getFree()(ptr);
 }
 
 template <class T>
@@ -95,12 +95,12 @@ void km_delete_n(T *buf, int num)
     tmp->~T();
     ++tmp;
   }
-  KameMix::AudioSystem::getFree()(buf);
+  KameMix::System::getFree()(buf);
 }
 
 // Allocator using user defined km_malloc & km_free for use with
 // sounds & sound_copies std::vectors. Must not be used until 
-// AudioSystem::init is called.
+// System::init is called.
 template <class T>
 struct Alloc{
   typedef T value_type;
@@ -114,12 +114,12 @@ struct Alloc{
 
   T* allocate(std::size_t n) 
   { 
-    return (T*) KameMix::AudioSystem::getMalloc()(n * sizeof(T)); 
+    return (T*) KameMix::System::getMalloc()(n * sizeof(T)); 
   }
 
   void deallocate(T *ptr, std::size_t n) 
   { 
-    KameMix::AudioSystem::getFree()(ptr);
+    KameMix::System::getFree()(ptr);
   }
 };
 

@@ -162,7 +162,7 @@ int StreamBuffer::numChannels() const
 
 int StreamBuffer::sampleBlockSize() const 
 { 
-  return sdata ? sdata->channels * AudioSystem::getFormatSize() : 0; 
+  return sdata ? sdata->channels * System::getFormatSize() : 0; 
 }
 
 void StreamBuffer::lock() 
@@ -214,7 +214,7 @@ int StreamBuffer::startPos() const
 int StreamBuffer::getPos(double sec) const 
 {
   if (sdata) {
-    int sample_pos = (int)((sec - sdata->time) * AudioSystem::getFrequency());
+    int sample_pos = (int)((sec - sdata->time) * System::getFrequency());
     int byte_pos = sample_pos * sampleBlockSize();
     if (byte_pos < 0 || byte_pos > sdata->buffer_size) {
       return -1;
@@ -366,7 +366,7 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   bool is_mono_src = isMonoOGG(sdata->vf); // all bitsreams are mono
   sdata->channels = is_mono_src ? 1 : 2;
   sdata->total_time = ov_time_total(&sdata->vf, -1);
-  const int freq = AudioSystem::getFrequency();
+  const int freq = System::getFrequency();
   int64_t total_samples = (int64_t)(sdata->total_time * freq);
   int64_t total_size = total_samples * sampleBlockSize();
 
@@ -399,8 +399,8 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
 
 void StreamBuffer::calcTime()
 {
-  const double freq = AudioSystem::getFrequency();
-  const int block_size = AudioSystem::getFormatSize() * sdata->channels;
+  const double freq = System::getFrequency();
+  const int block_size = System::getFormatSize() * sdata->channels;
 
   // stream ended in buffer2
   if (sdata->end_pos2 != -1) {
@@ -635,12 +635,12 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
 {
   using namespace KameMix;
   end_pos = -1;
-  const int dst_freq = AudioSystem::getFrequency();
+  const int dst_freq = System::getFrequency();
   // Only float output supported for now
   const SDL_AudioFormat src_format = AUDIO_F32SYS;
   const SDL_AudioFormat dst_format = getOutputFormat();
   const int bytes_per_src_block = sizeof(float) * channels;
-  const int bytes_per_dst_block = AudioSystem::getFormatSize() * channels;
+  const int bytes_per_dst_block = System::getFormatSize() * channels;
 
   int stream_idx; 
   int64_t offset;
@@ -792,10 +792,10 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
 {
   using namespace KameMix;
   end_pos = -1;
-  const int dst_freq = AudioSystem::getFrequency();
+  const int dst_freq = System::getFrequency();
   const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
   const SDL_AudioFormat dst_format = getOutputFormat();
-  const int bytes_per_block = AudioSystem::getFormatSize() * channels;
+  const int bytes_per_block = System::getFormatSize() * channels;
 
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, wf.sample_rate, 

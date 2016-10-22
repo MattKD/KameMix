@@ -22,9 +22,9 @@ enum OutAudioFormat {
   OutFormat_S16
 };
 
-class KAMEMIX_DECLSPEC AudioSystem {
+class KAMEMIX_DECLSPEC System {
 public:
-  // Initializes AudioSystem. Must be called before all other KameMix 
+  // Initializes System. Must be called before all other KameMix 
   // functions. Only call once in application, even if shutdown is called. 
   static bool init(int freq = 44100, 
                    int sample_buf_size = 2048, 
@@ -58,7 +58,7 @@ public:
   static ReallocFunc getRealloc();
 
   // User callbacks to call when a Sound or Stream finishes playing.
-  // All AudioSystem functions are thread safe to use in callbacks besides 
+  // All System functions are thread safe to use in callbacks besides 
   // resetting the callbacks. Sound/Stream are NOT thread safe, so the
   // passed in Sound*/Stream* should not be used to call their methods.
   static void setSoundFinished(SoundFinishedFunc func, void *udata);

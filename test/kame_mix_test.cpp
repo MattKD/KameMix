@@ -1,4 +1,4 @@
-#include <audio_system.h>
+#include <system.h>
 #include <sound.h>
 #include <stream.h>
 #include <thread>
@@ -23,15 +23,15 @@ int main(int argc, char *argv[])
 {
   //OutAudioFormat format = OutFormat_S16;
   OutAudioFormat format = OutFormat_Float;
-  if (!AudioSystem::init(44100, 2048, format)) {
-    cout << "AudioSystem::init failed\n";
+  if (!System::init(44100, 2048, format)) {
+    cout << "System::init failed\n";
     return 1;
   }
 
   cout << "Initialized KameMix\n";
 
-  AudioSystem::setSoundFinished(onSoundFinished, nullptr);
-  AudioSystem::setStreamFinished(onStreamFinished, nullptr);
+  System::setSoundFinished(onSoundFinished, nullptr);
+  System::setStreamFinished(onStreamFinished, nullptr);
 
   //Group effect_group(0.25f);
   //Listener listener(0, 0);
@@ -92,7 +92,7 @@ int main(int argc, char *argv[])
   int count = 0;
 
   while (true) {
-    AudioSystem::update();
+    System::update();
     std::this_thread::sleep_for(std::chrono::milliseconds(17));
     time_ms += 17;
 
@@ -100,31 +100,31 @@ int main(int argc, char *argv[])
       cout << "play music1 starting at 40sec for 10secs\n";
       time_ms = 0.0;
       count++;
-      music1.playAt(0, 40.0f);
+      music1.playAt(40);
     } else if (time_ms > 10000 && count == 1) {
       cout << "Fadeout music1 over 10 secs\n";
       time_ms = 0.0;
       count++;
-      music1.fadeout(10.0f);
+      music1.fadeout(10);
     } else if (time_ms > 10000 && count == 2) {
       cout << "Fadein music2 over 10 secs, and play 15 secs total\n";
       time_ms = 0.0;
       count++;
-      music2.fadein(0, 10.0f, false);
+      music2.fadein(10.0);
     } else if (time_ms > 15000 && count == 3) {
       cout << "stop music2\n";
       time_ms = 0.0;
       count++;
       music2.stop();
     } else if (count == 4) {
-      if (AudioSystem::numberPlaying() == 0) {
+      if (System::numberPlaying() == 0) {
         cout << "Test complete\n";
         break;
       }
     }
   }
 
-  AudioSystem::shutdown();
+  System::shutdown();
   cout << "Shutdown KameMix\n";
 
   return 0;

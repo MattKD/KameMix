@@ -1,4 +1,4 @@
-#include "audio_system.h"
+#include "system.h"
 #include "sound.h"
 #include "stream.h"
 #include "audio_mem.h"
@@ -46,7 +46,7 @@ struct VolumeData {
 
 // audio_mutex must be locked when reading/writing PlayingSound to
 // synchronize user calls with audioCallback. reading from sound and
-// stream must only be done in AudioSystem::update which must not be 
+// stream must only be done in System::update which must not be 
 // called concurrently with other KameMix audio functions. SoundBuffer
 // and StreamBuffer though can be read/modified in audioCallback
 // becuase they aren't modified in Sound/Stream while playing (halt()
@@ -164,12 +164,12 @@ struct CopyStereo {
 
 namespace KameMix {
 
-int AudioSystem::getFrequency() { return system_data.frequency; }
-int AudioSystem::getChannels() { return system_data.channels; }
-OutAudioFormat AudioSystem::getFormat() { return system_data.format; }
+int System::getFrequency() { return system_data.frequency; }
+int System::getChannels() { return system_data.channels; }
+OutAudioFormat System::getFormat() { return system_data.format; }
 
 // Size in bytes of sample output format
-int AudioSystem::getFormatSize() 
+int System::getFormatSize() 
 { 
   switch (system_data.format) {
   case OutFormat_Float:
@@ -181,58 +181,58 @@ int AudioSystem::getFormatSize()
   return 0;
 }
 
-MallocFunc AudioSystem::getMalloc() { return system_data.user_malloc; }
-FreeFunc AudioSystem::getFree() { return system_data.user_free; }
-ReallocFunc AudioSystem::getRealloc() { return system_data.user_realloc; }
+MallocFunc System::getMalloc() { return system_data.user_malloc; }
+FreeFunc System::getFree() { return system_data.user_free; }
+ReallocFunc System::getRealloc() { return system_data.user_realloc; }
 
-void AudioSystem::setLoopCount(int idx, int loops)
+void System::setLoopCount(int idx, int loops)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   PlayingSound &sound = (*system_data.sounds)[idx];
   sound.loop_count = loops;
 }
 
-void AudioSystem::setListenerPos(float x, float y)
+void System::setListenerPos(float x, float y)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   system_data.listener_x = x;
   system_data.listener_y = y;
 }
 
-void AudioSystem::getListenerPos(float &x, float &y)
+void System::getListenerPos(float &x, float &y)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   x = system_data.listener_x;
   y = system_data.listener_y;
 }
 
-double AudioSystem::getMasterVolume()
+double System::getMasterVolume()
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   return system_data.master_volume;
 }
 
-void AudioSystem::setMasterVolume(double volume)
+void System::setMasterVolume(double volume)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   system_data.master_volume = volume;
 }
 
-int AudioSystem::createGroup()
+int System::createGroup()
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   system_data.groups->push_back(1);
   return system_data.groups->size() - 1;
 }
 
-void AudioSystem::setGroupVolume(int group, double volume)
+void System::setGroupVolume(int group, double volume)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   assert(group >= 0 && group < (int)system_data.groups->size());
   (*system_data.groups)[group] = volume;
 }
 
-double AudioSystem::getGroupVolume(int group)
+double System::getGroupVolume(int group)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   assert(group >= 0 && group < (int)system_data.groups->size());
@@ -240,27 +240,27 @@ double AudioSystem::getGroupVolume(int group)
 }
 
 // May include stopped/finished sounds if called far away from update
-int AudioSystem::numberPlaying() 
+int System::numberPlaying() 
 { 
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   return (int)system_data.sounds->size(); 
 }
 
-void AudioSystem::setSoundFinished(SoundFinishedFunc func, void *udata)
+void System::setSoundFinished(SoundFinishedFunc func, void *udata)
 {
   std::lock_guard<std::mutex> guard(system_data.finished_callback_mutex);
   system_data.sound_finished = func;
   system_data.sound_finished_data = udata;
 }
 
-void AudioSystem::setStreamFinished(StreamFinishedFunc func, void *udata)
+void System::setStreamFinished(StreamFinishedFunc func, void *udata)
 {
   std::lock_guard<std::mutex> guard(system_data.finished_callback_mutex);
   system_data.stream_finished = func;
   system_data.stream_finished_data = udata;
 }
 
-bool AudioSystem::init(int freq, int sample_buf_size, 
+bool System::init(int freq, int sample_buf_size, 
                        OutAudioFormat format_,
                        MallocFunc custom_malloc,
                        FreeFunc custom_free,
@@ -284,7 +284,7 @@ bool AudioSystem::init(int freq, int sample_buf_size,
   int allowed_changes = SDL_AUDIO_ALLOW_FREQUENCY_CHANGE;
   SDL_AudioSpec spec_want = { 0 };
   SDL_AudioSpec dev_spec = { 0 };
-  spec_want.callback = AudioSystem::audioCallback;
+  spec_want.callback = System::audioCallback;
   spec_want.channels = 2;
   spec_want.format = outFormatToSDL(system_data.format);
   spec_want.freq = freq;
@@ -300,7 +300,7 @@ bool AudioSystem::init(int freq, int sample_buf_size,
   system_data.frequency = dev_spec.freq;
   system_data.channels = dev_spec.channels;
 
-  // AudioSystem::format must have alread been set above
+  // System::format must have alread been set above
   system_data.audio_tmp_buf_len = 
     dev_spec.samples * dev_spec.channels * getFormatSize();
   system_data.audio_tmp_buf = (uint8_t*)km_malloc(system_data.audio_tmp_buf_len);
@@ -326,7 +326,7 @@ bool AudioSystem::init(int freq, int sample_buf_size,
   return true;
 }
 
-void AudioSystem::shutdown()
+void System::shutdown()
 {
   SDL_CloseAudioDevice(system_data.dev_id);
   SDL_QuitSubSystem(SDL_INIT_AUDIO);
@@ -350,7 +350,7 @@ void AudioSystem::shutdown()
   system_data.sounds = nullptr;
 }
 
-void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
+void System::addSound(Sound *sound, int loops, int pos, bool paused,
                            float fade)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
@@ -358,7 +358,7 @@ void AudioSystem::addSound(Sound *sound, int loops, int pos, bool paused,
   sound->mix_idx = (int)system_data.sounds->size() - 1;
 }
 
-void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
+void System::addStream(Stream *stream, int loops, int pos, bool paused,
                             float fade)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
@@ -367,7 +367,7 @@ void AudioSystem::addStream(Stream *stream, int loops, int pos, bool paused,
   stream->mix_idx = (int)system_data.sounds->size() - 1;
 }
 
-void AudioSystem::removeSound(Sound *sound, float fade_secs)
+void System::removeSound(Sound *sound, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   PlayingSound &psound = (*system_data.sounds)[sound->mix_idx];
@@ -379,7 +379,7 @@ void AudioSystem::removeSound(Sound *sound, float fade_secs)
   }
 }
 
-void AudioSystem::removeStream(Stream *stream, float fade_secs)
+void System::removeStream(Stream *stream, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   PlayingSound &psound = (*system_data.sounds)[stream->mix_idx];
@@ -391,13 +391,13 @@ void AudioSystem::removeStream(Stream *stream, float fade_secs)
   }
 }
 
-bool AudioSystem::isSoundFinished(int idx)
+bool System::isSoundFinished(int idx)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   return isFinished((*system_data.sounds)[idx]);
 }
 
-void AudioSystem::pauseSound(int idx)
+void System::pauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   PlayingSound &sound = (*system_data.sounds)[idx];
@@ -408,7 +408,7 @@ void AudioSystem::pauseSound(int idx)
   }
 }
 
-void AudioSystem::unpauseSound(int idx)
+void System::unpauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   PlayingSound &sound = (*system_data.sounds)[idx];
@@ -419,14 +419,14 @@ void AudioSystem::unpauseSound(int idx)
   }
 }
 
-bool AudioSystem::isSoundPaused(int idx)
+bool System::isSoundPaused(int idx)
 {
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
   PlayingSound &sound = (*system_data.sounds)[idx];
   return isPaused(sound) || isPausing(sound); 
 }
 
-void AudioSystem::update()
+void System::update()
 {
   SDL_LockAudioDevice(system_data.dev_id);
   std::lock_guard<std::mutex> guard(system_data.audio_mutex);
@@ -484,9 +484,9 @@ void AudioSystem::update()
   SDL_UnlockAudioDevice(system_data.dev_id);
 }
 
-void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
+void System::audioCallback(void *udata, uint8_t *stream, const int len)
 {
-  if (AudioSystem::getFormat() == OutFormat_S16) {
+  if (System::getFormat() == OutFormat_S16) {
     memset(system_data.audio_mix_buf, 0, 
            system_data.audio_mix_buf_len * sizeof(int32_t));
   } else {
@@ -537,7 +537,7 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
 
       applyPosition(rel_x, rel_y, vdata);
 
-      switch (AudioSystem::getFormat()) {
+      switch (System::getFormat()) {
       case OutFormat_Float: {
         const int num_samples = total_copied / sizeof(float);
         applyVolume((float*)system_data.audio_tmp_buf, num_samples, vdata);
@@ -556,7 +556,7 @@ void AudioSystem::audioCallback(void *udata, uint8_t *stream, const int len)
     }
   }
 
-  switch (AudioSystem::getFormat()) {
+  switch (System::getFormat()) {
   case OutFormat_Float: 
     clamp((float*)stream, len / sizeof(float));
     break;
@@ -1037,7 +1037,7 @@ int copySound(PlayingSound &sound, SoundBuffer &sound_buf,
               uint8_t *buf, int len)
 {
   if (sound_buf.numChannels() == 1) {
-    switch (AudioSystem::getFormat()) {
+    switch (System::getFormat()) {
     case OutFormat_Float:
       return copySound(CopyMono<float>(), buf, len, sound, sound_buf);
       break;
@@ -1056,7 +1056,7 @@ int copyStream(PlayingSound &sound, StreamBuffer &stream_buf,
               uint8_t *buf, int len)
 {
   if (stream_buf.numChannels() == 1) {
-    switch (AudioSystem::getFormat()) {
+    switch (System::getFormat()) {
     case OutFormat_Float:
       return copyStream(CopyMono<float>(), buf, len, sound, stream_buf);
       break;
@@ -1277,7 +1277,7 @@ void Sound::fadein(float fade_secs, int loops, bool paused)
 {
   if (buffer.isLoaded()) {
     halt();
-    AudioSystem::addSound(this, loops, 0, paused, fade_secs);
+    System::addSound(this, loops, 0, paused, fade_secs);
   }
 }
 
@@ -1290,12 +1290,12 @@ void Sound::fadeinAt(double sec, float fade_secs, int loops, bool paused)
 {
   if (buffer.isLoaded()) {
     halt();
-    int sample_pos = (int) (sec * AudioSystem::getFrequency());
+    int sample_pos = (int) (sec * System::getFrequency());
     int byte_pos = sample_pos * buffer.sampleBlockSize();
     if (byte_pos < 0 || byte_pos >= buffer.size()) {
       byte_pos = 0;
     }
-    AudioSystem::addSound(this, loops, byte_pos, paused, fade_secs);
+    System::addSound(this, loops, byte_pos, paused, fade_secs);
   }
 }
 
@@ -1305,7 +1305,7 @@ void Sound::stop() { fadeout(-1); } // removes with min fade
 void Sound::fadeout(float fade_secs)
 {
   if (isPlaying()) {
-    AudioSystem::removeSound(this, fade_secs);
+    System::removeSound(this, fade_secs);
   }
 }
 
@@ -1313,32 +1313,32 @@ bool Sound::isPlaying() const { return mix_idx != -1; }
 
 bool Sound::isPlayingReal() const
 {
-  return isPlaying() && AudioSystem::isSoundFinished(mix_idx) == false;
+  return isPlaying() && System::isSoundFinished(mix_idx) == false;
 }
 
 void Sound::pause()
 {
   if (isPlaying()) {
-    AudioSystem::pauseSound(mix_idx);
+    System::pauseSound(mix_idx);
   }
 }
 
 void Sound::unpause()
 {
   if (isPlaying()) {
-    AudioSystem::unpauseSound(mix_idx);
+    System::unpauseSound(mix_idx);
   }
 }
 
 bool Sound::isPaused() const
 {
-  return isPlaying() && AudioSystem::isSoundPaused(mix_idx);
+  return isPlaying() && System::isSoundPaused(mix_idx);
 }
 
 void Sound::setLoopCount(int loops)
 {
   if (isPlaying()) {
-    AudioSystem::setLoopCount(mix_idx, loops);
+    System::setLoopCount(mix_idx, loops);
   }
 }
 
@@ -1439,7 +1439,7 @@ void Stream::fadein(float fade_secs, int loops, bool paused)
       start_pos = 0;
     }
 
-    AudioSystem::addStream(this, loops, start_pos, paused, fade_secs);
+    System::addStream(this, loops, start_pos, paused, fade_secs);
   }
 }
 
@@ -1467,7 +1467,7 @@ void Stream::fadeinAt(double sec, float fade_secs, int loops, bool paused)
       byte_pos = 0;
     }
 
-    AudioSystem::addStream(this, loops, byte_pos, paused, fade_secs);
+    System::addStream(this, loops, byte_pos, paused, fade_secs);
   }
 }
 
@@ -1477,7 +1477,7 @@ void Stream::stop() { fadeout(-1); }
 void Stream::fadeout(float fade_secs)
 {
   if (isPlaying()) {
-    AudioSystem::removeStream(this, fade_secs);
+    System::removeStream(this, fade_secs);
   }
 }
 
@@ -1485,32 +1485,32 @@ bool Stream::isPlaying() const { return mix_idx != -1; }
 
 bool Stream::isPlayingReal() const
 {
-  return isPlaying() && AudioSystem::isSoundFinished(mix_idx) == false;
+  return isPlaying() && System::isSoundFinished(mix_idx) == false;
 }
 
 void Stream::pause()
 {
   if (isPlaying()) {
-    AudioSystem::pauseSound(mix_idx);
+    System::pauseSound(mix_idx);
   }
 }
 
 void Stream::unpause()
 {
   if (isPlaying()) {
-    AudioSystem::unpauseSound(mix_idx);
+    System::unpauseSound(mix_idx);
   }
 }
 
 bool Stream::isPaused() const
 {
-  return isPlaying() && AudioSystem::isSoundPaused(mix_idx);
+  return isPlaying() && System::isSoundPaused(mix_idx);
 }
 
 void Stream::setLoopCount(int loops)
 {
   if (isPlaying()) {
-    AudioSystem::setLoopCount(mix_idx, loops);
+    System::setLoopCount(mix_idx, loops);
   }
 }
 

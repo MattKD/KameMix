@@ -168,7 +168,9 @@
     <ClInclude Include="..\..\src\wav_loader.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\src\sound.cpp" />
     <ClCompile Include="..\..\src\sound_buffer.cpp" />
+    <ClCompile Include="..\..\src\stream.cpp" />
     <ClCompile Include="..\..\src\stream_buffer.cpp" />
     <ClCompile Include="..\..\src\system.cpp" />
     <ClCompile Include="..\..\src\vorbis_helper.cpp" />

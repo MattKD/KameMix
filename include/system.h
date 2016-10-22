@@ -72,7 +72,21 @@ public:
   static const int MaxFormatSize = sizeof(float);
 
 private:
+  static int addSound(Sound *sound, int loops, int pos, bool paused, 
+                      float fade);
+  static int addStream(Stream *stream, int loops, int pos, bool paused, 
+                       float fade);
+  static void removeSound(int idx);  
+  static void removeSound(int idx, float fade_secs);  
+  static void setSoundLoopCount(int idx, int loops);
+  static bool isSoundFinished(int idx);
+  static void pauseSound(int idx);
+  static void unpauseSound(int idx);
+  static bool isSoundPaused(int idx);
   static void audioCallback(void *udata, uint8_t *stream, const int len);
+
+  friend class Sound;
+  friend class Stream;
 };
 
 } // end namespace KameMix

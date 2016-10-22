@@ -1,5 +1,5 @@
-#ifndef KAME_MIX_AUDIO_SYSTEM_H
-#define KAME_MIX_AUDIO_SYSTEM_H
+#ifndef KAME_MIX_SYSTEM_H
+#define KAME_MIX_SYSTEM_H
 
 #include "declspec.h"
 #include <cstdint>
@@ -70,22 +70,7 @@ public:
   static const int MaxFormatSize = sizeof(float);
 
 private:
-  static void addSound(Sound *sound, int loops, int pos, bool paused,
-                       float fade);
-  static void addStream(Stream *stream, int loops, int pos, bool paused,
-                        float fade);
-  static void removeSound(Sound *sound, float fade_secs);
-  static void removeStream(Stream *stream, float fade_secs);
-  static bool isSoundFinished(int idx);
-  static void pauseSound(int idx); 
-  static void unpauseSound(int idx); 
-  // returns false if playing or finished.
-  static bool isSoundPaused(int idx); 
-  static void setLoopCount(int idx, int loops);
   static void audioCallback(void *udata, uint8_t *stream, const int len);
-
-  friend class Sound;
-  friend class Stream;
 };
 
 } // end namespace KameMix

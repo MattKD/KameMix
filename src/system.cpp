@@ -114,7 +114,6 @@ struct SystemData {
   int32_t *audio_mix_buf; // for mixing int16_t audio
   int audio_mix_buf_len;
   std::mutex audio_mutex;
-  std::mutex finished_callback_mutex;
   double secs_per_callback;
   SoundBuf *sounds;
   std::vector<double> *groups;
@@ -249,14 +248,12 @@ int System::numberPlaying()
 
 void System::setSoundFinished(SoundFinishedFunc func, void *udata)
 {
-  std::lock_guard<std::mutex> guard(system_.finished_callback_mutex);
   system_.sound_finished = func;
   system_.sound_finished_data = udata;
 }
 
 void System::setStreamFinished(StreamFinishedFunc func, void *udata)
 {
-  std::lock_guard<std::mutex> guard(system_.finished_callback_mutex);
   system_.stream_finished = func;
   system_.stream_finished_data = udata;
 }
@@ -374,8 +371,10 @@ void System::update()
       if (!sound.isHalted()) { 
         if (sound.tag == SoundType) {
           sound.sound->mix_idx = -1;
+          soundFinished(sound.sound);
         } else {
           sound.stream->mix_idx = -1;
+          streamFinished(sound.stream);
         }
       }
 
@@ -447,24 +446,8 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
       double rel_y = sound.y;
       VolumeData vdata = sound.getVolumeData();
 
-      // Unlock system_.audio_mutex when done with sound. Must be unlocked
-      // before calling soundFinished/streamFinished
-
-      if (sound.isFinished()) {
-        if (sound.tag == SoundType) {
-          Sound *s = sound.sound;
-          guard.unlock();
-          soundFinished(s);
-        } else {
-          Stream *s = sound.stream;
-          guard.unlock();
-          streamFinished(s);
-        }
-      } else {
-        guard.unlock();
-      }
-
-      // system_.audio_mutex unlocked now, sound must not be used below
+      // Unlock system_.audio_mutex when done with sound.
+      guard.unlock();
 
       applyPosition(rel_x, rel_y, vdata);
 
@@ -1076,17 +1059,17 @@ void clamp(int16_t *target, int32_t *src, int len)
   }
 }
 
+// Called from update()
 void soundFinished(Sound *sound)
 {
-  std::lock_guard<std::mutex> guard(system_.finished_callback_mutex);
   if (system_.sound_finished) {
     system_.sound_finished(sound, system_.sound_finished_data);
   }
 }
 
+// Called from update()
 void streamFinished(Stream *stream)
 {
-  std::lock_guard<std::mutex> guard(system_.finished_callback_mutex);
   if (system_.stream_finished) {
     system_.stream_finished(stream, system_.stream_finished_data);
   }

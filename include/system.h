@@ -60,9 +60,8 @@ public:
 
 
   // User callbacks to call when a Sound or Stream finishes playing.
-  // All System functions are thread safe to use in callbacks besides 
-  // resetting the callbacks. Sound/Stream are NOT thread safe, so the
-  // passed in Sound*/Stream* should not be used to call their methods.
+  // The callbacks are called fromm update(), so any KameMix function
+  // is safe to call.
   static void setSoundFinished(SoundFinishedFunc func, void *udata);
   static void setStreamFinished(StreamFinishedFunc func, void *udata);
 

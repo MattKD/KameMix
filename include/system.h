@@ -74,12 +74,11 @@ public:
 private:
   static int addSound(Sound *sound, int loops, int pos, bool paused, 
                       float fade);
-  static int addStream(Stream *stream, int loops, int pos, bool paused, 
-                       float fade);
+  static int addStream(Stream *stream, int loops, int pos,  
+                       bool paused, float fade);
   static void removeSound(int idx);  
   static void removeSound(int idx, float fade_secs);  
   static void setSoundLoopCount(int idx, int loops);
-  static bool isSoundFinished(int idx);
   static void pauseSound(int idx);
   static void unpauseSound(int idx);
   static bool isSoundPaused(int idx);

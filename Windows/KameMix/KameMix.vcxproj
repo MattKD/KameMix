@@ -18,6 +18,29 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\include\declspec.h" />
+    <ClInclude Include="..\..\include\sound.h" />
+    <ClInclude Include="..\..\include\sound_buffer.h" />
+    <ClInclude Include="..\..\include\stream.h" />
+    <ClInclude Include="..\..\include\stream_buffer.h" />
+    <ClInclude Include="..\..\include\system.h" />
+    <ClInclude Include="..\..\src\audio_mem.h" />
+    <ClInclude Include="..\..\src\scope_exit.h" />
+    <ClInclude Include="..\..\src\sdl_helper.h" />
+    <ClInclude Include="..\..\src\util.h" />
+    <ClInclude Include="..\..\src\vorbis_helper.h" />
+    <ClInclude Include="..\..\src\wav_loader.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\src\sound.cpp" />
+    <ClCompile Include="..\..\src\sound_buffer.cpp" />
+    <ClCompile Include="..\..\src\stream.cpp" />
+    <ClCompile Include="..\..\src\stream_buffer.cpp" />
+    <ClCompile Include="..\..\src\system.cpp" />
+    <ClCompile Include="..\..\src\vorbis_helper.cpp" />
+    <ClCompile Include="..\..\src\wav_loader.cpp" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{0AACC76F-CE32-47BC-8B3B-ECB7784247E2}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
@@ -153,29 +176,6 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClInclude Include="..\..\include\declspec.h" />
-    <ClInclude Include="..\..\include\sound.h" />
-    <ClInclude Include="..\..\include\sound_buffer.h" />
-    <ClInclude Include="..\..\include\stream.h" />
-    <ClInclude Include="..\..\include\stream_buffer.h" />
-    <ClInclude Include="..\..\include\system.h" />
-    <ClInclude Include="..\..\src\audio_mem.h" />
-    <ClInclude Include="..\..\src\scope_exit.h" />
-    <ClInclude Include="..\..\src\sdl_helper.h" />
-    <ClInclude Include="..\..\src\util.h" />
-    <ClInclude Include="..\..\src\vorbis_helper.h" />
-    <ClInclude Include="..\..\src\wav_loader.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="..\..\src\sound.cpp" />
-    <ClCompile Include="..\..\src\sound_buffer.cpp" />
-    <ClCompile Include="..\..\src\stream.cpp" />
-    <ClCompile Include="..\..\src\stream_buffer.cpp" />
-    <ClCompile Include="..\..\src\system.cpp" />
-    <ClCompile Include="..\..\src\vorbis_helper.cpp" />
-    <ClCompile Include="..\..\src\wav_loader.cpp" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

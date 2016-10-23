@@ -123,6 +123,7 @@ void Sound::fadeout(float fade_secs)
   if (isPlaying()) {
     if (fade_secs == 0) {
       System::removeSound(mix_idx);
+      mix_idx = -1;
     } else {
       System::removeSound(mix_idx, fade_secs);
     }
@@ -130,11 +131,6 @@ void Sound::fadeout(float fade_secs)
 }
 
 bool Sound::isPlaying() const { return mix_idx != -1; }
-
-bool Sound::isPlayingReal() const
-{
-  return isPlaying() && System::isSoundFinished(mix_idx) == false;
-}
 
 void Sound::pause()
 {

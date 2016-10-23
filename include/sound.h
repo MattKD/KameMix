@@ -44,7 +44,6 @@ public:
   void stop(); // removes with min fade
   void fadeout(float fade_secs);
   bool isPlaying() const;
-  bool isPlayingReal() const;
   void pause();
   void unpause();
   bool isPaused() const;

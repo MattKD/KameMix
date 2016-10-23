@@ -107,16 +107,30 @@ int main(int argc, char *argv[])
       count++;
       music1.fadeout(10);
     } else if (time_ms > 10000 && count == 2) {
-      cout << "Fadein music2 over 10 secs, and play 15 secs total\n";
+      cout << "Fadein music2 over 10 secs, pause after 5 secs\n";
       time_ms = 0.0;
       count++;
       music2.fadein(10.0);
-    } else if (time_ms > 15000 && count == 3) {
+    } else if (time_ms > 5000 && count == 3) {
+      cout << "pause music2 for 3 secs\n";
+      time_ms = 0.0;
+      count++;
+      music2.pause();
+     } else if (time_ms > 3000 && count == 4) {
+      cout << "unpase music2, and continue fadein over 5 secs\n";
+      time_ms = 0.0;
+      count++;
+      music2.unpause();
+     } else if (time_ms > 5000 && count == 5) {
+      cout << "fadein complete, play for 5 secs and then stop\n";
+      time_ms = 0.0;
+      count++;
+     } else if (time_ms > 5000 && count == 6) {
       cout << "stop music2\n";
       time_ms = 0.0;
       count++;
       music2.stop();
-    } else if (count == 4) {
+    } else if (count == 7) {
       if (System::numberPlaying() == 0) {
         cout << "Test complete\n";
         break;

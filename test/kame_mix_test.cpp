@@ -1,5 +1,6 @@
 #include <KameMix.h>
 #include <cmath>
+#include <cassert>
 #include <thread>
 #include <chrono>
 #include <iostream>
@@ -11,11 +12,13 @@ using std::cerr;
 void onSoundFinished(Sound *sound, void *udata)
 {
   cout << "sound finished\n";
+  assert(!sound->isPlaying());
 }
 
 void onStreamFinished(Stream *stream, void *udata)
 {
   cout << "stream finished\n";
+  assert(!stream->isPlaying());
 }
 
 int main(int argc, char *argv[])
@@ -32,8 +35,10 @@ int main(int argc, char *argv[])
   System::setSoundFinished(onSoundFinished, nullptr);
   System::setStreamFinished(onStreamFinished, nullptr);
 
-  //Group effect_group(0.25f);
-  //Listener listener(0, 0);
+  assert(System::getMasterVolume() == 1.0);
+  System::setMasterVolume(.5);
+  assert(System::getMasterVolume() == .5);
+  System::setMasterVolume(1.0);
 
   const char *file_path = "sound/spell1.wav";
   Stream spell1(file_path);
@@ -77,14 +82,29 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
 
+  int group1 = System::createGroup();
+  System::setGroupVolume(group1, .75);
+  assert(System::getGroupVolume(group1) == .75);
+
   spell1.play(6);
+  spell1.setGroup(group1);
+  assert(spell1.isPlaying());
+  assert(spell1.getGroup() == group1);
   cout << "play spell1 7 times\n";
+
   spell3.play(6);
+  assert(spell3.isPlaying());
+  assert(spell3.getGroup() == -1);
   cout << "play spell3 7 times\n";
+
   cow.play(6);
+  assert(cow.isPlaying());
   cout << "play cow 7 times\n";
+
   duck.play(6);
+  assert(duck.isPlaying());
   duck.setVolume(1.25f);
+  assert(duck.getVolume() == 1.25f);
   cout << "play duck 7 times\n";
 
   double time_ms = 0.0;
@@ -94,6 +114,11 @@ int main(int argc, char *argv[])
   float listener_x = .5f;
   float listener_y = .5f;
   System::setListenerPos(listener_x, listener_y);
+  {
+    float a, b;
+    System::getListenerPos(a, b);
+    assert(a == listener_x && b == listener_y);
+  }
   float x = listener_x;
   float y = .75f;
   bool going_left = true;

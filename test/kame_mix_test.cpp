@@ -1,6 +1,7 @@
 #include <system.h>
 #include <sound.h>
 #include <stream.h>
+#include <cmath>
 #include <thread>
 #include <chrono>
 #include <iostream>
@@ -90,11 +91,19 @@ int main(int argc, char *argv[])
 
   double time_ms = 0.0;
   int count = 0;
+  const int frame_ms = 17;
+  const double frames_per_sec = 1000.0/frame_ms;
+  float listener_x = .5f;
+  float listener_y = .5f;
+  System::setListenerPos(listener_x, listener_y);
+  float x = listener_x;
+  float y = .75f;
+  bool going_left = true;
 
   while (true) {
     System::update();
-    std::this_thread::sleep_for(std::chrono::milliseconds(17));
-    time_ms += 17;
+    std::this_thread::sleep_for(std::chrono::milliseconds(frame_ms));
+    time_ms += frame_ms;
 
     if (time_ms > 10000 && count == 0) {
       cout << "play music1 starting at 40sec for 10secs\n";
@@ -116,21 +125,40 @@ int main(int argc, char *argv[])
       time_ms = 0.0;
       count++;
       music2.pause();
-     } else if (time_ms > 3000 && count == 4) {
+    } else if (time_ms > 3000 && count == 4) {
       cout << "unpase music2, and continue fadein over 5 secs\n";
       time_ms = 0.0;
       count++;
       music2.unpause();
-     } else if (time_ms > 5000 && count == 5) {
+    } else if (time_ms > 5000 && count == 5) {
       cout << "fadein complete, play for 5 secs and then stop\n";
       time_ms = 0.0;
       count++;
-     } else if (time_ms > 5000 && count == 6) {
+    } else if (time_ms > 5000 && count == 6) {
       cout << "stop music2\n";
       time_ms = 0.0;
       count++;
       music2.stop();
+      cout << "play spell1 moving left to right and back for 15secs\n";
+      spell1.setMaxDistance(1.0f);    
+      spell1.play(-1);
     } else if (count == 7) {
+      spell1.setPos(x, y);
+      // 2 cycles in 10 secs
+      float dx = (float)(4*spell1.getMaxDistance() / 10 / frames_per_sec);
+      if (going_left) {
+        x -= dx;
+      } else {
+        x += dx;
+      }
+      if (std::abs(listener_x - x) >= spell1.getMaxDistance()) {
+        going_left = !going_left;
+      }
+      if (time_ms > 15000) {
+        spell1.stop();
+        count++;
+      }
+    } else if (count == 8) {
       if (System::numberPlaying() == 0) {
         cout << "Test complete\n";
         break;

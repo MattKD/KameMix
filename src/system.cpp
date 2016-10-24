@@ -613,8 +613,8 @@ void PlayingSound::updateFromStream()
   // get relative position if max_distance set to valid value
   const float max_distance = stream->getMaxDistance();
   if (max_distance > 0) {
-    x = (sound->getX() - system_.listener_x) / max_distance;
-    y = (sound->getY() - system_.listener_y) / max_distance;
+    x = (stream->getX() - system_.listener_x) / max_distance;
+    y = (stream->getY() - system_.listener_y) / max_distance;
   } else { // max_distance not set, so not using position data
     x = 0;
     y = 0;

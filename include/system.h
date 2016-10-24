@@ -45,12 +45,12 @@ public:
 
   // number of sounds playing including paused
   static int numberPlaying(); 
-  static double getMasterVolume();
-  static void setMasterVolume(double volume);
+  static float getMasterVolume();
+  static void setMasterVolume(float volume);
 
   static int createGroup();
-  static void setGroupVolume(int group, double volume);
-  static double getGroupVolume(int group);
+  static void setGroupVolume(int group, float volume);
+  static float getGroupVolume(int group);
 
   static int getFrequency();
   static int getChannels();

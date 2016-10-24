@@ -12,6 +12,7 @@
 #include <thread>
 #include <mutex>
 #include <numeric>
+#include <algorithm>
 
 using namespace KameMix;
 #define PI_F 3.141592653589793f
@@ -34,12 +35,14 @@ enum PlayState : uint8_t {
 };
 
 struct VolumeData {
-  double left_volume;
-  double right_volume;
-  double fade; // fade_percent
+  float left_volume;
+  float right_volume;
+  float lfade; // fade_percent
+  float rfade; // fade_percent
   // increment/decrement to add to fade each time after applying fade to 
   // audio stream 
-  double mod; 
+  float lmod; 
+  float rmod; 
   // number of times to add mod to fade; 0 means apply fade once to 
   // audio stream without adding mod after
   int mod_times; 
@@ -67,15 +70,14 @@ struct PlayingSound {
   bool isFading() const { return fade_total != 0.0f; }
   bool isFadingIn() const { return fade_total > 0.0f; }
   bool isFadingOut() const { return fade_total < 0.0f; }
+  bool isVolumeChanging(float new_lvol, float new_rvol) const { 
+    return lvolume != new_lvol || rvolume != new_rvol; }
+
   void setFadein(float fade);
   void setFadeout(float fade);
   void unsetFade() { fade_total = fade_time = 0; }
   float fadeinTotal() const { return fade_total; }
   float fadeoutTotal() const { return -fade_total; }
-  bool isVolumeChanging() const { return volume != new_volume; }
-  bool isFadeNeeded() const {
-    return isFading() || isVolumeChanging() || isPauseChanging();
-  }
 
   void updateFromSound();
   void updateFromStream();
@@ -92,11 +94,15 @@ struct PlayingSound {
   int buffer_pos; // byte pos in sound/stream
   float fade_total; // fadein/out total time in sec, negative for fadeout
   float fade_time; // elapsed time for fadein, time left for fadeout
-  float volume; // previous volume of sound * group * master
+  float lvolume; // previous volume after position fade
+  float rvolume;
   float new_volume; // updated volume of sound * group * master
   float x, y; // relative position from listener
   PlayingType tag;
   PlayState state;
+
+private:
+  void applyPosition(float &lvol, float &rvol);
 };
 
 struct CopyResult {
@@ -114,10 +120,10 @@ struct SystemData {
   int32_t *audio_mix_buf; // for mixing int16_t audio
   int audio_mix_buf_len;
   std::mutex audio_mutex;
-  double secs_per_callback;
+  float secs_per_callback;
   SoundBuf *sounds;
-  std::vector<double> *groups;
-  double master_volume;
+  std::vector<float> *groups;
+  float master_volume;
   float listener_x;
   float listener_y;
   SoundFinishedFunc sound_finished;
@@ -132,13 +138,12 @@ struct SystemData {
   ReallocFunc user_realloc;
 } system_;
 
-void applyPosition(double rel_x, double rel_y, VolumeData &vdata);
 void clamp(float *buf, int len);
 void clamp(int16_t *target, int32_t *src, int len);
 template <class T, class U>
 void mixStream(T *target, U *source, int len);
 template <class T>
-void applyVolume(T *stream, int len, double left_vol, double right_vol);
+void applyVolume(T *stream, int len, float left_vol, float right_vol);
 template <class T>
 void applyVolume(T *stream, int len_, const VolumeData &vdata);
 template <class CopyFunc>
@@ -206,13 +211,13 @@ void System::getListenerPos(float &x, float &y)
   y = system_.listener_y;
 }
 
-double System::getMasterVolume()
+float System::getMasterVolume()
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   return system_.master_volume;
 }
 
-void System::setMasterVolume(double volume)
+void System::setMasterVolume(float volume)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   system_.master_volume = volume;
@@ -225,14 +230,14 @@ int System::createGroup()
   return system_.groups->size() - 1;
 }
 
-void System::setGroupVolume(int group, double volume)
+void System::setGroupVolume(int group, float volume)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   assert(group >= 0 && group < (int)system_.groups->size());
   (*system_.groups)[group] = volume;
 }
 
-double System::getGroupVolume(int group)
+float System::getGroupVolume(int group)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   assert(group >= 0 && group < (int)system_.groups->size());
@@ -318,11 +323,11 @@ bool System::init(int freq, int sample_buf_size,
   system_.listener_x = 0;
   system_.listener_y = 0;
   system_.secs_per_callback = 
-    (double)dev_spec.samples / system_.frequency;
+    (float)dev_spec.samples / system_.frequency;
 
   system_.sounds = km_new<SoundBuf>();
   system_.sounds->reserve(256);
-  system_.groups = km_new<std::vector<double>>();
+  system_.groups = km_new<std::vector<float>>();
 
   SDL_PauseAudioDevice(system_.dev_id, 0);
   return true;
@@ -442,14 +447,11 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
                                   system_.audio_tmp_buf, len);
       }
 
-      double rel_x = sound.x;
-      double rel_y = sound.y;
       VolumeData vdata = sound.getVolumeData();
 
       // Unlock system_.audio_mutex when done with sound.
       guard.unlock();
 
-      applyPosition(rel_x, rel_y, vdata);
 
       switch (System::getFormat()) {
       case OutFormat_Float: {
@@ -559,7 +561,8 @@ PlayingSound::PlayingSound(Sound *s, int loops, int buf_pos, float fade,
 {
   setFadein(fade);
   updateFromSound();
-  volume = new_volume;
+  lvolume = new_volume;
+  rvolume = new_volume;
   if (paused) {
     state = PausedState;
   } else {
@@ -573,7 +576,8 @@ PlayingSound::PlayingSound(Stream *s, int loops, int buf_pos, float fade,
 {
   setFadein(fade);
   updateFromStream();
-  volume = new_volume;
+  lvolume = new_volume;
+  rvolume = new_volume;
   if (paused) {
     state = PausedState;
   } else {
@@ -584,10 +588,10 @@ PlayingSound::PlayingSound(Stream *s, int loops, int buf_pos, float fade,
 inline
 void PlayingSound::updateFromSound()
 {
-  new_volume = (float)(sound->getVolume() * system_.master_volume);
+  new_volume = sound->getVolume() * system_.master_volume;
   const int group = sound->getGroup();
   if (group >= 0) {
-    new_volume *= (float)(*system_.groups)[group];
+    new_volume *= (*system_.groups)[group];
   }
 
   // get relative position if max_distance set to valid value
@@ -604,10 +608,10 @@ void PlayingSound::updateFromSound()
 inline
 void PlayingSound::updateFromStream()
 {
-  new_volume = (float)(stream->getVolume() * system_.master_volume);
+  new_volume = stream->getVolume() * system_.master_volume;
   const int group = stream->getGroup();
   if (group >= 0) {
-    new_volume *= (float)(*system_.groups)[group];
+    new_volume *= (*system_.groups)[group];
   }
 
   // get relative position if max_distance set to valid value
@@ -628,7 +632,7 @@ void PlayingSound::setFadein(float fade)
   } else if (fade > system_.secs_per_callback) {
     fade_total = fade;
   } else {
-    fade_total = (float)system_.secs_per_callback;
+    fade_total = system_.secs_per_callback;
   }
   fade_time = 0.0f;
 }
@@ -644,8 +648,8 @@ void PlayingSound::setFadeout(float fade) {
     fade_total = -fade;
     fade_time = fade; 
   } else {
-    fade_total = (float)-system_.secs_per_callback;
-    fade_time = (float)system_.secs_per_callback; 
+    fade_total = -system_.secs_per_callback;
+    fade_time = system_.secs_per_callback; 
   }
 }
 
@@ -687,66 +691,144 @@ bool PlayingSound::streamSwapBuffers(StreamBuffer &sbuf)
   return false;
 }
 
+// Modify left and right channel volume by position. Doesn't change if 
+// sound.x and sound.y == 0.
+// left_vol and right_vol must be initialized before calling.
+void PlayingSound::applyPosition(float &lvol, float &rvol)
+{
+  if (x == 0 && y == 0) {
+    return;
+  }
+
+  float distance = sqrt(x * x + y * y);
+
+  if (distance >= 1.0f) {
+    lvol = rvol = 0.0f;
+  } else {
+    // Sound's volume on left and right speakers vary between 
+    // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
+    // directly in front or behind listener. With max_mod = 0.3, this is 
+    // 1.0 to 0.54 and 0.77 in front and back.
+    const float max_mod = 0.3f;
+    const float base = 1/(1.0f+max_mod) * (1.0f - distance);
+    lvol *= base;
+    rvol *= base;
+    float left_mod = 1.0;
+    float right_mod = 1.0;
+
+    if (x != 0.0f) { // not 90 or 270 degrees
+      float rads = atan(y / x);
+      if (y >= 0.0f) { // quadrant 1 and 2
+        if (x > 0.0f) { // quadrant 1
+          float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f - mod;
+          right_mod = 1.0f + mod;
+        } else if (x < 0.0f) { // quadrant 2
+          float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f + mod;
+          right_mod = 1.0f - mod;
+        }
+      } else { // quadrants 3 and 4
+        if (x < 0.0f) { // quadrant 3
+          float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f + mod;
+          right_mod = 1.0f - mod;
+        } else if (x > 0.0f) { // quadrant 4
+          float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
+          left_mod = 1.0f - mod;
+          right_mod = 1.0f + mod;
+        }
+      }
+
+      lvol *= left_mod;
+      rvol *= right_mod;
+    } // end sound.x != 0
+  } // end distance < 1.0
+}
+
+
 VolumeData PlayingSound::getVolumeData()
 {
-  if (isFadeNeeded()) {
-    double start_fade = 1.0;
-    double end_fade = 1.0;
+  float new_lvol = new_volume;
+  float new_rvol = new_volume;
+  applyPosition(new_lvol, new_rvol);
+
+  if (isFading() || isPauseChanging() || isVolumeChanging(new_lvol, new_rvol)) {
+    float start_lfade = 1.0;
+    float start_rfade = 1.0;
+    float end_lfade = 1.0;
+    float end_rfade = 1.0;
     bool adjust_fade_time = false;
 
     if (isFadingIn()) {
-      start_fade = (double)fade_time / fade_total;
-      end_fade = (fade_time + system_.secs_per_callback) / fade_total;
+      start_lfade = fade_time / fade_total;
+      start_rfade = start_lfade;
+      end_lfade = (fade_time + system_.secs_per_callback) / fade_total;
+      end_rfade = end_lfade;
       adjust_fade_time = true;
     } else if (isFadingOut()) { // fade_total is negative in fadeout
-      start_fade = (double)fade_time / -fade_total;
-      end_fade = (fade_time - system_.secs_per_callback) / -fade_total;
+      start_lfade = fade_time / -fade_total;
+      start_rfade = start_lfade;
+      end_lfade = (fade_time - system_.secs_per_callback) / -fade_total;
+      end_rfade = end_lfade;
       adjust_fade_time = true;
     }
 
-    double volume_ = volume;
-
-    if (isVolumeChanging()) {
-      if (volume == 0) {
-        volume_ = 0.01;
+    VolumeData vdata;
+    // set to previous played volume, which we'll fade from to new volume
+    vdata.left_volume = lvolume;
+    vdata.right_volume = rvolume;
+    if (isVolumeChanging(new_lvol, new_rvol)) {
+      // if previous volume was 0, set to small value prevent div by 0
+      if (vdata.left_volume == 0) {
+        vdata.left_volume = 0.01f;
       }
-      end_fade *= new_volume / volume_;
-      volume = new_volume;
+      if (vdata.right_volume == 0) {
+        vdata.right_volume = 0.01f;
+      }
+      end_lfade *= new_lvol / vdata.left_volume;
+      end_rfade *= new_rvol / vdata.right_volume;
+      // reset previous volumes to new volume after postion fading
+      lvolume = new_lvol;
+      rvolume = new_rvol;
     }
 
     if (isPausing()) {
-      end_fade = 0.0;
+      end_lfade = 0.0;
+      end_rfade = 0.0;
       adjust_fade_time = false;
       state = PausedState;
     } else if (isUnpausing()) {
-      start_fade = 0.0;
+      start_lfade = 0.0;
+      start_rfade = 0.0;
       adjust_fade_time = false;
       state = PlayingState;
     }
 
-    VolumeData vdata;
-    vdata.left_volume = volume_;
-    vdata.right_volume = volume_;
-    vdata.fade = start_fade;
-    const double fade_delta = end_fade - start_fade;
+    vdata.lfade = start_lfade;
+    vdata.rfade = start_rfade;
+    const float lfade_delta = end_lfade - start_lfade;
+    const float rfade_delta = end_rfade - start_rfade;
+    const float max_delta = std::max(lfade_delta, rfade_delta);
     // divide fade_delta into 2% steps
-    const double delta_step = 0.02;
-    vdata.mod_times = (int)std::abs(fade_delta / delta_step);
+    const float delta_step = 0.02f;
+    vdata.mod_times = (int)std::abs(max_delta / delta_step);
     if (vdata.mod_times > 50) {
       vdata.mod_times = 50;
     }
-    vdata.mod = fade_delta / (vdata.mod_times + 1);
+    vdata.lmod = lfade_delta / (vdata.mod_times + 1);
+    vdata.rmod = rfade_delta / (vdata.mod_times + 1);
 
     if (adjust_fade_time) {
       if (isFadingOut()) {
-        fade_time -= (float)system_.secs_per_callback;
+        fade_time -= system_.secs_per_callback;
         if (fade_time <= 0.0f) {
           // Finished not Stopped state, so mix_idx is unset in update
           state = FinishedState; 
           unsetFade();
         }
       } else {
-        fade_time += (float)system_.secs_per_callback;
+        fade_time += system_.secs_per_callback;
         if (fade_time >= fade_total) {
           unsetFade();
         }
@@ -756,9 +838,12 @@ VolumeData PlayingSound::getVolumeData()
     return vdata;
   } else {
     VolumeData vdata;
-    vdata.left_volume = vdata.right_volume = volume;
-    vdata.fade = 1.0;
-    vdata.mod = 0.0;
+    vdata.left_volume = lvolume;
+    vdata.right_volume = rvolume;
+    vdata.lfade = 1.0;
+    vdata.rfade = 1.0;
+    vdata.lmod = 0.0;
+    vdata.rmod = 0.0;
     vdata.mod_times = 0;
     return vdata;
   }
@@ -768,7 +853,7 @@ VolumeData PlayingSound::getVolumeData()
 // Audio mixing and volume functions
 //
 template <class T>
-void applyVolume(T *stream, int len, double left_vol, double right_vol)
+void applyVolume(T *stream, int len, float left_vol, float right_vol)
 {
   for (int i = 0; i < len; i += 2) {
     stream[i] = (T)(stream[i] * left_vol);
@@ -784,22 +869,18 @@ void applyVolume(T *stream, int len_, const VolumeData &vdata)
   int len = (len_ / 2) / (vdata.mod_times + 1) * 2;
 
   for (int i = 0; i < vdata.mod_times; ++i) {
-    double fade = vdata.fade + i * vdata.mod;
-    double left_vol = vdata.left_volume * fade;
-    double right_vol = vdata.right_volume * fade;
+    float lfade = vdata.lfade + i * vdata.lmod;
+    float rfade = vdata.rfade + i * vdata.rmod;
+    float left_vol = vdata.left_volume * lfade;
+    float right_vol = vdata.right_volume * rfade;
     applyVolume(stream+pos, len, left_vol, right_vol);
     pos += len;
-    fade += vdata.mod;
-    if (fade > 1.0) {
-      fade = 1.0;
-    } else if (fade < 0.0) {
-      fade = 0.0;
-    }
   }
 
-  double fade = vdata.fade + vdata.mod_times * vdata.mod;
-  double left_vol = vdata.left_volume * fade;
-  double right_vol = vdata.right_volume * fade;
+  float lfade = vdata.lfade + vdata.mod_times * vdata.lmod;
+  float rfade = vdata.rfade + vdata.mod_times * vdata.rmod;
+  float left_vol = vdata.left_volume * lfade;
+  float right_vol = vdata.right_volume * rfade;
   // len*(fdata.mod_times+1) can be less than len_, so make sure to
   // include all last samples
   len = len_ - pos;
@@ -974,61 +1055,6 @@ void mixStream(T *target, U *source, int len)
   for (int i = 0; i < len; ++i) {
     target[i] += source[i];
   }
-}
-
-// Modify left and right channel volume by position. Doesn't change if 
-// sound.x and sound.y == 0.
-// left_vol and right_vol must be initialized before calling.
-void applyPosition(double rel_x, double rel_y, VolumeData &vdata)
-{
-  if (rel_x == 0 && rel_y == 0) {
-    return;
-  }
-
-  double distance = sqrt(rel_x * rel_x + rel_y * rel_y);
-
-  if (distance >= 1.0f) {
-    vdata.left_volume = vdata.right_volume = 0.0f;
-  } else {
-    // Sound's volume on left and right speakers vary between 
-    // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
-    // directly in front or behind listener. With max_mod = 0.3, this is 
-    // 1.0 to 0.54 and 0.77 in front and back.
-    const double max_mod = 0.3f;
-    const double base = 1/(1.0f+max_mod) * (1.0 - distance);
-    vdata.left_volume *= base;
-    vdata.right_volume *= base;
-    double left_mod = 1.0;
-    double right_mod = 1.0;
-
-    if (rel_x != 0.0f) { // not 90 or 270 degrees
-      double rads = atan(rel_y / rel_x);
-      if (rel_y >= 0.0f) { // quadrant 1 and 2
-        if (rel_x > 0.0f) { // quadrant 1
-          double mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f - mod;
-          right_mod = 1.0f + mod;
-        } else if (rel_x < 0.0f) { // quadrant 2
-          double mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f + mod;
-          right_mod = 1.0f - mod;
-        }
-      } else { // quadrants 3 and 4
-         if (rel_x < 0.0f) { // quadrant 3
-          double mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f + mod;
-          right_mod = 1.0f - mod;
-        } else if (rel_x > 0.0f) { // quadrant 4
-          double mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f - mod;
-          right_mod = 1.0f + mod;
-        }
-      }
-
-      vdata.left_volume *= left_mod;
-      vdata.right_volume *= right_mod;
-    } // end sound.x != 0
-  } // end distance < 1.0
 }
 
 void clamp(float *buf, int len)

@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
       count++;
       music2.pause();
     } else if (time_ms > 3000 && count == 4) {
-      cout << "unpase music2, and continue fadein over 5 secs\n";
+      cout << "unpause music2, and continue fadein over 5 secs\n";
       time_ms = 0.0;
       count++;
       music2.unpause();
@@ -137,22 +137,22 @@ int main(int argc, char *argv[])
       time_ms = 0.0;
       count++;
       music2.stop();
-      cout << "play spell1 moving left to right and back for 15secs\n";
+      cout << "play spell1 moving left to right and back for 20secs\n";
       spell1.setMaxDistance(1.0f);    
       spell1.play(-1);
     } else if (count == 7) {
       spell1.setPos(x, y);
-      // 2 cycles in 10 secs
-      float dx = (float)(4*spell1.getMaxDistance() / 10 / frames_per_sec);
+      // 1 cycle in 10 secs
+      float dx = (float)(2*spell1.getMaxDistance() / 10 / frames_per_sec);
       if (going_left) {
         x -= dx;
       } else {
         x += dx;
       }
-      if (std::abs(listener_x - x) >= spell1.getMaxDistance()) {
+      if (std::abs(listener_x - x) >= spell1.getMaxDistance() * 1.05) {
         going_left = !going_left;
       }
-      if (time_ms > 15000) {
+      if (time_ms > 20000) {
         spell1.stop();
         count++;
       }

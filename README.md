@@ -1,6 +1,8 @@
 # KameMix
 Simple audio mixer for SDL2
 
+This is very alpha and hasn't been thoroughly tested, but feel free to try it and report and bugs. It supports OGG and WAV files loaded fully into memory as Sound objects, or in small chunks read in a separate thread as Stream objects. Both can have their volume modified either directly through Sound::setVolume or Stream::setVolume, or through System::setGroupVolume and System::setMasterVolume. Volume is also affected by setting sound and listener position: Sound::setPosition and System::setListenerPos. Fading in and out and pausing is also supported. Destroying a Sound/Stream or replaying one while in the middle of playing can cause an audio pop, so call Sound::stop/Stream::stop and wait one game frame before destroying or replaying to prevent it; use isPlaying to check if stopped. System::init must be called before using any other function. System::update must be called every game frame to update sounds's volume and position, and to removed finished sounds and streams from the play buffer. See system.h, sound.h and stream.h for a full list of functions.
+
 ---
 
 Windows Visual Studio 2015 Build:
@@ -54,8 +56,3 @@ cd KameMix/Linux
 make clean
 ```
 
----
-
-Documentation:
-
-TODO

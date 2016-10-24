@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\include\declspec.h" />
+    <ClInclude Include="..\..\include\KameMix.h" />
     <ClInclude Include="..\..\include\sound.h" />
     <ClInclude Include="..\..\include\sound_buffer.h" />
     <ClInclude Include="..\..\include\stream.h" />

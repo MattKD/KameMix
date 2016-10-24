@@ -1,6 +1,4 @@
-#include <system.h>
-#include <sound.h>
-#include <stream.h>
+#include <KameMix.h>
 #include <cmath>
 #include <thread>
 #include <chrono>

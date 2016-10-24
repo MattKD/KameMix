@@ -98,7 +98,7 @@ void Stream::fadein(float fade_secs, int loops, bool paused)
       start_pos = 0;
     }
 
-    System::addStream(this, loops, start_pos, paused, fade_secs);
+    mix_idx = System::addStream(this, loops, start_pos, paused, fade_secs);
   }
 }
 
@@ -126,7 +126,7 @@ void Stream::fadeinAt(double sec, float fade_secs, int loops, bool paused)
       byte_pos = 0;
     }
 
-    System::addStream(this, loops, byte_pos, paused, fade_secs);
+    mix_idx = System::addStream(this, loops, byte_pos, paused, fade_secs);
   }
 }
 

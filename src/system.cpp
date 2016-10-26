@@ -128,10 +128,6 @@ struct SystemData {
   float master_volume;
   float listener_x;
   float listener_y;
-  SoundFinishedFunc sound_finished;
-  StreamFinishedFunc stream_finished;
-  void *sound_finished_data;
-  void *stream_finished_data;
   int channels;
   int frequency;
   OutputFormat format;
@@ -168,9 +164,6 @@ struct CopyStereo {
   CopyResult operator()(uint8_t *dst, int dst_len, uint8_t *src,
                         int src_len);
 };
-
-void soundFinished(Sound *sound);
-void streamFinished(Stream *stream);
 
 } // end anon namespace
 
@@ -252,18 +245,6 @@ int System::numberPlaying()
 { 
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   return (int)system_.sounds->size(); 
-}
-
-void System::setSoundFinished(SoundFinishedFunc func, void *udata)
-{
-  system_.sound_finished = func;
-  system_.sound_finished_data = udata;
-}
-
-void System::setStreamFinished(StreamFinishedFunc func, void *udata)
-{
-  system_.stream_finished = func;
-  system_.stream_finished_data = udata;
 }
 
 void System::setAlloc(MallocFunc custom_malloc, FreeFunc custom_free,
@@ -378,10 +359,8 @@ void System::update()
       if (!sound.isHalted()) { 
         if (sound.tag == SoundType) {
           sound.sound->mix_idx = -1;
-          soundFinished(sound.sound);
         } else {
           sound.stream->mix_idx = -1;
-          streamFinished(sound.stream);
         }
       }
 
@@ -1085,22 +1064,6 @@ void clamp(int16_t *target, int32_t *src, int len)
     } else {
       target[i] = val;
     }
-  }
-}
-
-// Called from update()
-void soundFinished(Sound *sound)
-{
-  if (system_.sound_finished) {
-    system_.sound_finished(sound, system_.sound_finished_data);
-  }
-}
-
-// Called from update()
-void streamFinished(Stream *stream)
-{
-  if (system_.stream_finished) {
-    system_.stream_finished(stream, system_.stream_finished_data);
   }
 }
 

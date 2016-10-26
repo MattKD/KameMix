@@ -14,8 +14,6 @@ class Stream;
 typedef void* (*MallocFunc)(size_t len);
 typedef void (*FreeFunc)(void *ptr);
 typedef void* (*ReallocFunc)(void *ptr, size_t len);
-typedef void (*SoundFinishedFunc) (Sound *sound, void *udata);
-typedef void (*StreamFinishedFunc) (Stream *stream, void *udata);
 
 enum OutputFormat {
   OutputFloat,
@@ -57,13 +55,6 @@ public:
   static OutputFormat getFormat();
   // Size in bytes of sample output format
   static int getFormatSize();
-
-
-  // User callbacks to call when a Sound or Stream finishes playing.
-  // The callbacks are called fromm update(), so any KameMix function
-  // is safe to call.
-  static void setSoundFinished(SoundFinishedFunc func, void *udata);
-  static void setStreamFinished(StreamFinishedFunc func, void *udata);
 
   static void setListenerPos(float x, float y);
   static void getListenerPos(float &x, float &y);

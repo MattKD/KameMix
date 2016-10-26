@@ -9,18 +9,6 @@ using namespace KameMix;
 using std::cout;
 using std::cerr;
 
-void onSoundFinished(Sound *sound, void *udata)
-{
-  cout << "sound finished\n";
-  assert(!sound->isPlaying());
-}
-
-void onStreamFinished(Stream *stream, void *udata)
-{
-  cout << "stream finished\n";
-  assert(!stream->isPlaying());
-}
-
 Sound spell1;
 Sound spell3;
 Sound cow;
@@ -53,9 +41,6 @@ int main(int argc, char *argv[])
   if (!loadAudio()) {
     return EXIT_FAILURE;
   }
-
-  System::setSoundFinished(onSoundFinished, nullptr);
-  System::setStreamFinished(onStreamFinished, nullptr);
 
   assert(System::getMasterVolume() == 1.0f);
   System::setMasterVolume(.5f);

@@ -48,6 +48,16 @@ struct VolumeData {
   int mod_times; 
 };
 
+struct VolumeFade {
+  float left_fade;
+  float right_fade;
+};
+
+struct CopyResult {
+  int target_amount;
+  int src_amount;
+};
+
 // audio_mutex must be locked when reading/writing PlayingSound to
 // synchronize user calls with audioCallback. reading from sound and
 // stream must only be done in System::update which must not be 
@@ -100,14 +110,6 @@ struct PlayingSound {
   float x, y; // relative position from listener
   PlayingType tag;
   PlayState state;
-
-private:
-  void applyPosition(float &lvol, float &rvol);
-};
-
-struct CopyResult {
-  int target_amount;
-  int src_amount;
 };
 
 typedef std::vector<PlayingSound, Alloc<PlayingSound>> SoundBuf;
@@ -132,12 +134,13 @@ struct SystemData {
   void *stream_finished_data;
   int channels;
   int frequency;
-  OutAudioFormat format;
+  OutputFormat format;
   MallocFunc user_malloc;
   FreeFunc user_free;
   ReallocFunc user_realloc;
 } system_;
 
+VolumeFade applyPosition(float rel_x, float rel_y);
 void clamp(float *buf, int len);
 void clamp(int16_t *target, int32_t *src, int len);
 template <class T, class U>
@@ -178,15 +181,15 @@ namespace KameMix {
 //
 int System::getFrequency() { return system_.frequency; }
 int System::getChannels() { return system_.channels; }
-OutAudioFormat System::getFormat() { return system_.format; }
+OutputFormat System::getFormat() { return system_.format; }
 
 // Size in bytes of sample output format
 int System::getFormatSize() 
 { 
   switch (system_.format) {
-  case OutFormat_Float:
+  case OutputFloat:
     return sizeof(float);
-  case OutFormat_S16:
+  case OutputS16:
     return sizeof(int16_t);
   }
   assert("Unknown AudioFormat");
@@ -273,8 +276,7 @@ void System::setAlloc(MallocFunc custom_malloc, FreeFunc custom_free,
   }
 }
 
-bool System::init(int freq, int sample_buf_size, 
-                       OutAudioFormat format_)
+bool System::init(int freq, int sample_buf_size, OutputFormat format_)
 {
   if (SDL_Init(SDL_INIT_AUDIO) < 0) {
     return false;
@@ -312,8 +314,8 @@ bool System::init(int freq, int sample_buf_size,
     dev_spec.samples * dev_spec.channels * getFormatSize();
   system_.audio_tmp_buf = (uint8_t*)km_malloc(system_.audio_tmp_buf_len);
   
-  // audio_mix_buf is only used for OutFormat_S16
-  if (system_.format == OutFormat_S16) {
+  // audio_mix_buf is only used for OutputS16
+  if (system_.format == OutputS16) {
     system_.audio_mix_buf_len = dev_spec.samples * dev_spec.channels;
     system_.audio_mix_buf = 
       (int32_t*)km_malloc(system_.audio_mix_buf_len * sizeof(int32_t));
@@ -421,7 +423,7 @@ void System::update()
 
 void System::audioCallback(void *udata, uint8_t *stream, const int len)
 {
-  if (System::getFormat() == OutFormat_S16) {
+  if (System::getFormat() == OutputS16) {
     memset(system_.audio_mix_buf, 0, 
            system_.audio_mix_buf_len * sizeof(int32_t));
   } else {
@@ -454,13 +456,13 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
 
 
       switch (System::getFormat()) {
-      case OutFormat_Float: {
+      case OutputFloat: {
         const int num_samples = total_copied / sizeof(float);
         applyVolume((float*)system_.audio_tmp_buf, num_samples, vdata);
         mixStream((float*)stream, (float*)system_.audio_tmp_buf, num_samples);
         break;
       }
-      case OutFormat_S16: {
+      case OutputS16: {
         const int num_samples = total_copied / sizeof(int16_t);
         applyVolume((int16_t*)system_.audio_tmp_buf, num_samples, vdata);
         mixStream(system_.audio_mix_buf, (int16_t*)system_.audio_tmp_buf, num_samples);
@@ -473,10 +475,10 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
   }
 
   switch (System::getFormat()) {
-  case OutFormat_Float: 
+  case OutputFloat: 
     clamp((float*)stream, len / sizeof(float));
     break;
-  case OutFormat_S16: 
+  case OutputS16: 
     clamp((int16_t*)stream, system_.audio_mix_buf, len / sizeof(int16_t));
     break;
   }
@@ -691,67 +693,11 @@ bool PlayingSound::streamSwapBuffers(StreamBuffer &sbuf)
   return false;
 }
 
-// Modify left and right channel volume by position. Doesn't change if 
-// sound.x and sound.y == 0.
-// left_vol and right_vol must be initialized before calling.
-void PlayingSound::applyPosition(float &lvol, float &rvol)
-{
-  if (x == 0 && y == 0) {
-    return;
-  }
-
-  float distance = sqrt(x * x + y * y);
-
-  if (distance >= 1.0f) {
-    lvol = rvol = 0.0f;
-  } else {
-    // Sound's volume on left and right speakers vary between 
-    // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
-    // directly in front or behind listener. With max_mod = 0.3, this is 
-    // 1.0 to 0.54 and 0.77 in front and back.
-    const float max_mod = 0.3f;
-    const float base = 1/(1.0f+max_mod) * (1.0f - distance);
-    lvol *= base;
-    rvol *= base;
-    float left_mod = 1.0;
-    float right_mod = 1.0;
-
-    if (x != 0.0f) { // not 90 or 270 degrees
-      float rads = atan(y / x);
-      if (y >= 0.0f) { // quadrant 1 and 2
-        if (x > 0.0f) { // quadrant 1
-          float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f - mod;
-          right_mod = 1.0f + mod;
-        } else if (x < 0.0f) { // quadrant 2
-          float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f + mod;
-          right_mod = 1.0f - mod;
-        }
-      } else { // quadrants 3 and 4
-        if (x < 0.0f) { // quadrant 3
-          float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f + mod;
-          right_mod = 1.0f - mod;
-        } else if (x > 0.0f) { // quadrant 4
-          float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
-          left_mod = 1.0f - mod;
-          right_mod = 1.0f + mod;
-        }
-      }
-
-      lvol *= left_mod;
-      rvol *= right_mod;
-    } // end sound.x != 0
-  } // end distance < 1.0
-}
-
-
 VolumeData PlayingSound::getVolumeData()
 {
-  float new_lvol = new_volume;
-  float new_rvol = new_volume;
-  applyPosition(new_lvol, new_rvol);
+  VolumeFade vfade = applyPosition(x, y);
+  float new_lvol = new_volume * vfade.left_fade;
+  float new_rvol = new_volume * vfade.right_fade;
 
   if (isFading() || isPauseChanging() || isVolumeChanging(new_lvol, new_rvol)) {
     float start_lfade = 1.0;
@@ -852,6 +798,63 @@ VolumeData PlayingSound::getVolumeData()
 //
 // Audio mixing and volume functions
 //
+
+// Modify left and right channel volume by position. Doesn't change if 
+// relative position from listener is (0,0).
+VolumeFade applyPosition(float rel_x, float rel_y)
+{
+  if (rel_x == 0 && rel_y == 0) {
+    VolumeFade vf = {1.0f, 1.0f};
+    return vf;
+  }
+
+  float distance = sqrt(rel_x * rel_x + rel_y * rel_y);
+
+  if (distance >= 1.0f) {
+    VolumeFade vf = {0.0f, 0.0f};
+    return vf;
+  }
+
+  // Sound's volume on left and right speakers vary between 
+  // 1.0 to (1.0-max_mod)/(1.0+max_mod), and are at 1.0/(1.0+max_mod) 
+  // directly in front or behind listener. With max_mod = 0.3, this is 
+  // 1.0 to 0.54 and 0.77 in front and back.
+  const float max_mod = 0.3f;
+  const float base = 1/(1.0f+max_mod) * (1.0f - distance);
+  VolumeFade vfade = {base, base};
+  float left_mod = 1.0;
+  float right_mod = 1.0;
+
+  if (rel_x != 0.0f) { // not 90 or 270 degrees
+    float rads = atan(rel_y / rel_x);
+    if (rel_y >= 0.0f) { // quadrant 1 and 2
+      if (rel_x > 0.0f) { // quadrant 1
+        float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
+        left_mod = 1.0f - mod;
+        right_mod = 1.0f + mod;
+      } else if (rel_x < 0.0f) { // quadrant 2
+        float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
+        left_mod = 1.0f + mod;
+        right_mod = 1.0f - mod;
+      }
+    } else { // quadrants 3 and 4
+      if (rel_x < 0.0f) { // quadrant 3
+        float mod = max_mod - rads / (PI_F/2.0f) * max_mod; 
+        left_mod = 1.0f + mod;
+        right_mod = 1.0f - mod;
+      } else if (rel_x > 0.0f) { // quadrant 4
+        float mod = max_mod + rads / (PI_F/2.0f) * max_mod; 
+        left_mod = 1.0f - mod;
+        right_mod = 1.0f + mod;
+      }
+    }
+
+    vfade.left_fade *= left_mod;
+    vfade.right_fade *= right_mod;
+  } 
+  return vfade;
+}
+
 template <class T>
 void applyVolume(T *stream, int len, float left_vol, float right_vol)
 {
@@ -1016,10 +1019,10 @@ int copySound(PlayingSound &sound, SoundBuffer &sound_buf,
 {
   if (sound_buf.numChannels() == 1) {
     switch (System::getFormat()) {
-    case OutFormat_Float:
+    case OutputFloat:
       return copySound(CopyMono<float>(), buf, len, sound, sound_buf);
       break;
-    case OutFormat_S16:
+    case OutputS16:
       return copySound(CopyMono<int16_t>(), buf, len, sound, sound_buf);
       break;
     }
@@ -1035,10 +1038,10 @@ int copyStream(PlayingSound &sound, StreamBuffer &stream_buf,
 {
   if (stream_buf.numChannels() == 1) {
     switch (System::getFormat()) {
-    case OutFormat_Float:
+    case OutputFloat:
       return copyStream(CopyMono<float>(), buf, len, sound, stream_buf);
       break;
-    case OutFormat_S16:
+    case OutputS16:
       return copyStream(CopyMono<int16_t>(), buf, len, sound, stream_buf);
       break;
     }

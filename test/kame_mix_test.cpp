@@ -41,8 +41,8 @@ void test5();
 
 int main(int argc, char *argv[])
 {
-  //OutAudioFormat format = OutFormat_S16;
-  OutAudioFormat format = OutFormat_Float;
+  //OutputFormat format = OutputS16;
+  OutputFormat format = OutputFloat;
   if (!System::init(44100, 2048, format)) {
     cout << "System::init failed\n";
     return 1;
@@ -83,10 +83,10 @@ int main(int argc, char *argv[])
   duck.setVolume(1.5);
   assert(duck.getVolume() == 1.5);
 
-  //test1();
-  //test2();
-  //test3();
-  //test4();
+  test1();
+  test2();
+  test3();
+  test4();
   test5();
 
   cout << "Test complete\n";

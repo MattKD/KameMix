@@ -17,9 +17,9 @@ typedef void* (*ReallocFunc)(void *ptr, size_t len);
 typedef void (*SoundFinishedFunc) (Sound *sound, void *udata);
 typedef void (*StreamFinishedFunc) (Stream *stream, void *udata);
 
-enum OutAudioFormat {
-  OutFormat_Float,
-  OutFormat_S16
+enum OutputFormat {
+  OutputFloat,
+  OutputS16
 };
 
 class KAMEMIX_DECLSPEC System {
@@ -29,7 +29,7 @@ public:
   // Sounds and Streams must be released and reloaded.
   static bool init(int freq = 44100, 
                    int sample_buf_size = 2048, 
-                   OutAudioFormat format = OutFormat_Float);
+                   OutputFormat format = OutputFloat);
   static void shutdown();
   // Updates the volume and position of all playing sounds/streams, and
   // removes finished/stopped ones. Should be called after every game frame.
@@ -54,7 +54,7 @@ public:
 
   static int getFrequency();
   static int getChannels();
-  static OutAudioFormat getFormat();
+  static OutputFormat getFormat();
   // Size in bytes of sample output format
   static int getFormatSize();
 

@@ -8,12 +8,12 @@
 namespace KameMix {
 
 inline
-SDL_AudioFormat outFormatToSDL(OutAudioFormat format)
+SDL_AudioFormat outFormatToSDL(OutputFormat format)
 {
   switch (format) {
-  case OutFormat_Float:
+  case OutputFloat:
     return AUDIO_F32SYS;
-  case OutFormat_S16:
+  case OutputS16:
     return AUDIO_S16SYS;
   }
 

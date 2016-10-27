@@ -26,6 +26,7 @@ void test2();
 void test3();
 void test4();
 void test5();
+void test6();
 
 int main(int argc, char *argv[])
 {
@@ -73,6 +74,7 @@ int main(int argc, char *argv[])
   test3();
   test4();
   test5();
+  test6();
 
   cout << "Test complete\n";
 
@@ -295,4 +297,74 @@ void test5()
 
   cout << "Stop music1\n";
   music1.stop();
+  while (music1.isPlaying()) {
+    update_ms(frame_ms);
+  }
 }
+
+void test6()
+{
+  bool use_stop = false;
+  for (int i = 0; i < 2; ++i) {
+    if (use_stop) {
+      cout << "Testing replaying stream at different times with waiting "
+              "for stop.\n";
+    } else {
+      cout << "Testing replaying stream at different times without waiting "
+              "for stop.\n";
+    }
+
+    cout << "Play music1 for 5 secs then skip to 20secs\n";
+    music1.play();
+    update_ms(5000);
+
+    cout << "Continue playing at 20secs for 5 secs then skip to 40secs\n";
+    if (use_stop) {
+      music1.stop();
+      while (music1.isPlaying()) {
+        update_ms(frame_ms);
+      }
+    }
+    music1.playAt(20.0);
+    update_ms(5000);
+
+    cout << "Continue playing at 40secs for 5 secs then skip to 60secs\n";
+    if (use_stop) {
+      music1.stop();
+      while (music1.isPlaying()) {
+        update_ms(frame_ms);
+      }
+    }
+    music1.playAt(40.0);
+    update_ms(5000);
+
+    cout << "Continue playing at 60secs for 5 secs then skip to 80secs\n";
+    if (use_stop) {
+      music1.stop();
+      while (music1.isPlaying()) {
+        update_ms(frame_ms);
+      }
+    }
+    music1.playAt(60.0);
+    update_ms(5000);
+
+    cout << "Continue playing at 80secs for 5 secs then stop\n";
+    if (use_stop) {
+      music1.stop();
+      while (music1.isPlaying()) {
+        update_ms(frame_ms);
+      }
+    }
+    music1.playAt(80.0);
+    update_ms(5000);
+
+    cout << "Stop music1\n";
+    music1.stop();
+    while (music1.isPlaying()) {
+      update_ms(frame_ms);
+    }
+
+    use_stop = true;
+  }
+}
+

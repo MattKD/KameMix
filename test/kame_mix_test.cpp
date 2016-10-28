@@ -70,12 +70,12 @@ int main(int argc, char *argv[])
   duck.setVolume(1.5);
   assert(duck.getVolume() == 1.5);
 
-  test1();
-  test2();
-  test3();
-  test4();
-  test5();
-  test6();
+  //test1();
+  //test2();
+  //test3();
+  //test4();
+  //test5();
+  //test6();
   test7();
 
   cout << "Test complete\n";
@@ -423,5 +423,17 @@ void test7()
   update_ms(500);
   update_ms(2000);
 
+  cout << "Play stream, fadeout over 10secs and detach\n";
+  music1.play();
+  music1.fadeout(10);
+  music1.detach();
+  assert(!music1.isLoaded());
+  assert(!music1.isPlaying());
+  music1.stop(); // no effect
+  music1.halt(); // no effect
+  music1.play(); // no effect
+  assert(!music1.isPlaying());
+
+  update_ms(10000);
   cout << "Test7 complete\n";
 }

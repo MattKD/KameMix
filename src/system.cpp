@@ -108,6 +108,10 @@ struct PlayingSound {
     assert(tag == SoundType);
     return sound == nullptr;
   }
+  bool isStreamDetached() {
+    assert(tag == StreamType);
+    return stream == nullptr;
+  }
 
   void setFadein(float fade);
   void setFadeout(float fade);
@@ -408,7 +412,9 @@ void System::update()
             sound.sound->mix_idx = -1;
           }
         } else {
-          sound.stream->mix_idx = -1;
+          if (!sound.isStreamDetached()) {
+            sound.stream->mix_idx = -1;
+          }
         }
       }
 
@@ -420,7 +426,9 @@ void System::update()
             sound.sound->mix_idx = idx;
           }
         } else {
-          sound.stream->mix_idx = idx;
+          if (!sound.isStreamDetached()) {
+            sound.stream->mix_idx = idx;
+          }
         }
         system_.sounds->pop_back();
         sounds_sz -= 1;
@@ -443,7 +451,9 @@ void System::update()
           continue; // will be removed at top of loop
         }
       }
-      sound.updateFromStream();
+      if (!sound.isStreamDetached()) {
+        sound.updateFromStream();
+      }
     }
     idx += 1;
   }
@@ -483,7 +493,6 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
 
       // Unlock system_.audio_mutex when done with sound.
       guard.unlock();
-
 
       switch (System::getFormat()) {
       case OutputFloat: {
@@ -591,6 +600,18 @@ void System::detachSound(Sound *s)
   }
   assert(sound.isSoundDetached());
 }
+
+void System::detachStream(Stream *s)
+{
+  std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  PlayingSound &sound = (*system_.sounds)[s->mix_idx];
+  sound.stream = nullptr;
+  if (sound.isPaused() || sound.isPausing()) {
+    sound.state = PlayingState;
+  }
+  assert(sound.isStreamDetached());
+}
+
 
 } // end namespace KameMix
 

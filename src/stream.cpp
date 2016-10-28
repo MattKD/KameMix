@@ -145,6 +145,15 @@ void Stream::fadeout(float fade_secs)
   }
 }
 
+void Stream::detach()
+{
+  if (isPlaying()) {
+    System::detachStream(this);
+    mix_idx = -1;
+    buffer.release();
+  }
+}
+
 bool Stream::isPlaying() const { return mix_idx != -1; }
 
 void Stream::pause()

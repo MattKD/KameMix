@@ -39,6 +39,7 @@ public:
                 bool paused = false); 
   void halt(); // instant remove
   void stop(); // removes with min fade
+  void detach();
 
   // fade_secs = 0 for instant remove, same as halt(); -1 for fastest fade,
   // same as stop()

@@ -43,6 +43,7 @@ public:
   void halt(); // instant remove
   void stop(); // removes with min fade
   void fadeout(float fade_secs);
+  void detach();
   bool isPlaying() const;
   void pause();
   void unpause();

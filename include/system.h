@@ -68,6 +68,7 @@ private:
                        bool paused, float fade);
   static void removeSound(int idx);  
   static void removeSound(int idx, float fade_secs);  
+  static void detachSound(Sound *s);
   static void setSoundLoopCount(int idx, int loops);
   static void pauseSound(int idx);
   static void unpauseSound(int idx);

@@ -27,6 +27,7 @@ void test3();
 void test4();
 void test5();
 void test6();
+void test7();
 
 int main(int argc, char *argv[])
 {
@@ -75,6 +76,7 @@ int main(int argc, char *argv[])
   test4();
   test5();
   test6();
+  test7();
 
   cout << "Test complete\n";
 
@@ -148,34 +150,46 @@ double update_ms(double msec)
 
 void test1()
 {
-  cout << "play spell1 7 times\n";
+  cout << "Test1: Tests playing multiple sounds/streams at once\n";
+
+  cout << "Play music1\n";
+  music2.play();
+
+  cout << "Play spell1 7 times\n";
   spell1.play(6);
   assert(spell1.isPlaying());
 
-  cout << "play spell3 7 times\n";
+  cout << "Play spell3 7 times\n";
   spell3.play(6);
   assert(spell3.isPlaying());
 
-  cout << "play cow 7 times\n";
+  cout << "Play cow 7 times\n";
   cow.play(6);
   assert(cow.isPlaying());
 
-  cout << "play duck 7 times\n";
+  cout << "Play duck 7 times\n";
   duck.play(6);
   assert(duck.isPlaying());
 
   while (true) {
     update_ms(1000);
-    if (System::numberPlaying() == 0) {
+    if (System::numberPlaying() == 1) {
+      cout << "Stop music2\n";
+      music2.stop();
+    } else if (System::numberPlaying() == 0) {
       break;
     }
   }
+
+  cout << "Test1 complete\n";
 }
 
 void test2()
 {
-  cout << "Play music1 starting at 40sec for 10secs\n";
-  music1.playAt(40);
+  cout << "Test2: Tests fading in/out, and pausing\n";
+
+  cout << "Play music1 for 10secs with 5 second fadein\n";
+  music1.fadein(5.0f);
   update_ms(10000);
 
   cout << "Fadeout music1 over 10 secs\n";
@@ -199,10 +213,14 @@ void test2()
 
   cout << "Stop music2\n";
   music2.stop();
+
+  cout << "Test2 complete\n";
 }
 
 void test3()
 {
+  cout << "Test3: Tests changing 2d position of sound in small steps\n";
+
   float listener_x = .5f;
   float listener_y = .5f;
   System::setListenerPos(listener_x, listener_y);
@@ -238,10 +256,13 @@ void test3()
 
     spell1.setPos(x, y);
   }
+  cout << "Test3 complete\n";
 }
 
 void test4()
 {
+  cout << "Test4: Tests setting 2d position without small steps\n";
+
   float listener_x = .5f;
   float listener_y = .5f;
   System::setListenerPos(listener_x, listener_y);
@@ -269,10 +290,14 @@ void test4()
 
   cout << "Stop duck\n";
   duck.stop();
+
+  cout << "Test4 complete\n";
 }
 
 void test5()
 {
+  cout << "Test5: Tests changing volume\n";
+
   cout << "Play music1 for 5 secs at 100% volume\n";
   music1.setVolume(1.0f);
   music1.setGroup(-1);
@@ -300,10 +325,14 @@ void test5()
   while (music1.isPlaying()) {
     update_ms(frame_ms);
   }
+
+  cout << "Test5 complete\n";
 }
 
 void test6()
 {
+  cout << "Test6: Tests changing stream time position\n";
+
   bool use_stop = false;
   for (int i = 0; i < 2; ++i) {
     if (use_stop) {
@@ -366,5 +395,33 @@ void test6()
 
     use_stop = true;
   }
+
+  cout << "Test6 complete\n";
 }
 
+void test7()
+{
+  cout << "Test 7: Tests Sound::detach()\n";
+
+  cout << "Play same spell3 3 times 500ms apart without detach()\n";
+  spell3.play();
+  update_ms(500);
+  spell3.play();
+  update_ms(500);
+  spell3.play();
+  update_ms(2000);
+
+  cout << "Play same spell3 3 times 500ms apart with detach()\n";
+  spell3.play();
+  spell3.detach();
+  update_ms(500);
+  spell3.play();
+  spell3.detach();
+  update_ms(500);
+  spell3.play();
+  spell3.detach();
+  update_ms(500);
+  update_ms(2000);
+
+  cout << "Test7 complete\n";
+}

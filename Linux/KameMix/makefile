@@ -1,5 +1,5 @@
 CXX ?= g++
-CFLAGS := -Wall -pedantic -std=c++14 -O2
+CFLAGS := -Wall -pedantic -std=c++14 -O2 -DNDEBUG
 
 LIBS := -lSDL2 -lvorbisfile -lpthread
 SDL_INCDIR ?= /usr/include/SDL2

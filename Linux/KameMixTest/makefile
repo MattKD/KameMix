@@ -1,5 +1,5 @@
 CXX ?= g++
-CFLAGS := -Wall -pedantic -std=c++14 -O2
+CFLAGS := -Wall -pedantic -std=c++14 -O2 -DNDEBUG
 
 LIBS := -lKameMix -lpthread
 KameMix_INCDIR := ../../include

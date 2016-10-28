@@ -70,12 +70,12 @@ int main(int argc, char *argv[])
   duck.setVolume(1.5);
   assert(duck.getVolume() == 1.5);
 
-  //test1();
-  //test2();
-  //test3();
-  //test4();
-  //test5();
-  //test6();
+  test1();
+  test2();
+  test3();
+  test4();
+  test5();
+  test6();
   test7();
 
   cout << "Test complete\n";
@@ -171,6 +171,9 @@ void test1()
   duck.play(6);
   assert(duck.isPlaying());
 
+  update_ms(frame_ms);
+  assert(System::numberPlaying() == 5);
+
   while (true) {
     update_ms(1000);
     if (System::numberPlaying() == 1) {
@@ -199,14 +202,17 @@ void test2()
   cout << "Fadein music2 over 10 secs, pause after 5 secs\n";
   music2.fadein(10.0);
   update_ms(5000);
+  assert(!music2.isPaused());
 
   cout << "Pause music2 for 3 secs\n";
   music2.pause();
   update_ms(3000);
+  assert(music2.isPaused());
 
   cout << "Unpause music2, and continue fadein over 5 secs\n";
   music2.unpause();
   update_ms(5000);
+  assert(!music2.isPaused());
 
   cout << "Fadein complete, play for 5 secs and then stop\n";
   update_ms(5000);

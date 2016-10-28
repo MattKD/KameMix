@@ -8,16 +8,19 @@ Stream::Stream() :
   group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, max_distance{0} { }
 
 Stream::Stream(const char *filename, double sec) : 
-  group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, max_distance{0}
-{ 
-  load(filename, sec); 
-}
+  buffer(filename, sec), group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, 
+  max_distance{0} { }
 
-Stream::~Stream() { halt(); }
+Stream::~Stream() 
+{ 
+  stop();
+  detach();
+}
 
 bool Stream::load(const char *filename, double sec) 
 { 
-  halt();
+  stop();
+  detach();
   if (buffer.load(filename, sec)) {
     readMore();
     return true;
@@ -27,7 +30,8 @@ bool Stream::load(const char *filename, double sec)
 
 bool Stream::loadOGG(const char *filename, double sec) 
 { 
-  halt();
+  stop();
+  detach();
   if (buffer.loadOGG(filename, sec)) {
     readMore();
     return true;
@@ -37,7 +41,8 @@ bool Stream::loadOGG(const char *filename, double sec)
 
 bool Stream::loadWAV(const char *filename, double sec) 
 { 
-  halt();
+  stop();
+  detach();
   if (buffer.loadWAV(filename, sec)) {
     readMore();
     return true;
@@ -47,8 +52,8 @@ bool Stream::loadWAV(const char *filename, double sec)
 
 void Stream::release() 
 { 
-  halt(); 
-  buffer.release(); 
+  stop();
+  detach(); // releases buffer
 }
 
 bool Stream::isLoaded() { return buffer.isLoaded(); }
@@ -150,8 +155,8 @@ void Stream::detach()
   if (isPlaying()) {
     System::detachStream(this);
     mix_idx = -1;
-    buffer.release();
   }
+  buffer.release();
 }
 
 bool Stream::isPlaying() const { return mix_idx != -1; }

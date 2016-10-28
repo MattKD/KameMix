@@ -19,7 +19,8 @@ Sound::Sound(const Sound &other) :
 Sound& Sound::operator=(const Sound &other)
 {
   if (this != &other) {
-    halt(); // mix_idx = -1 after
+    stop();
+    detach(); // mix_idx = -1 after
     buffer = other.buffer;
     group = other.group;
     volume = other.volume;
@@ -30,29 +31,37 @@ Sound& Sound::operator=(const Sound &other)
   return *this;
 }
 
-Sound::~Sound() { fadeout(0); }
+Sound::~Sound() 
+{ 
+  stop();
+  detach();
+}
 
 bool Sound::load(const char *filename) 
 { 
-  halt();
+  stop();
+  detach();
   return buffer.load(filename); 
 }
 
 bool Sound::loadOGG(const char *filename) 
 { 
-  halt();
+  stop();
+  detach();
   return buffer.loadOGG(filename); 
 }
 
 bool Sound::loadWAV(const char *filename) 
 { 
-  halt();
+  stop();
+  detach();
   return buffer.loadWAV(filename); 
 }
 
 void Sound::release() 
 { 
-  halt(); 
+  stop();
+  detach();
   buffer.release(); 
 }
 
@@ -92,7 +101,8 @@ void Sound::play(int loops, bool paused)
 void Sound::fadein(float fade_secs, int loops, bool paused) 
 {
   if (buffer.isLoaded()) {
-    halt();
+    stop();
+    detach();
     mix_idx = System::addSound(this, loops, 0, paused, fade_secs);
   }
 }
@@ -105,7 +115,8 @@ void Sound::playAt(double sec, int loops, bool paused)
 void Sound::fadeinAt(double sec, float fade_secs, int loops, bool paused) 
 {
   if (buffer.isLoaded()) {
-    halt();
+    stop();
+    detach();
     int sample_pos = (int) (sec * System::getFrequency());
     int byte_pos = sample_pos * buffer.sampleBlockSize();
     if (byte_pos < 0 || byte_pos >= buffer.size()) {

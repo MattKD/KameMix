@@ -58,6 +58,22 @@ struct CopyResult {
   int src_amount;
 };
 
+// For using SoundBuffer and StreamBuffer in union without unrestricted 
+// union support. Both are Pimpl classes, so void* should be fine for 
+// alignment.
+struct SoundBuffer_ {
+  union {
+    char data[sizeof(SoundBuffer)];
+    void *align_;
+  };
+};
+struct StreamBuffer_ {
+  union {
+    char data[sizeof(StreamBuffer)];
+    void *align_;
+  };
+};
+
 // audio_mutex must be locked when reading/writing PlayingSound to
 // synchronize user calls with audioCallback. reading from sound and
 // stream must only be done in System::update which must not be 
@@ -65,7 +81,6 @@ struct CopyResult {
 // and StreamBuffer though can be read/modified in audioCallback
 // becuase they aren't modified in Sound/Stream while playing (halt()
 // is called before modification).
-
 struct PlayingSound {
   PlayingSound(Sound *s, SoundBuffer &sbuf, int loops, int buf_pos, 
                float fade, bool paused);
@@ -103,33 +118,33 @@ struct PlayingSound {
   void updateFromSound();
   void updateFromStream();
   void decrementLoopCount();
-  bool streamSwapNeeded(const StreamBuffer &sbuf);
-  bool streamSwapBuffers(StreamBuffer &sbuf);
+  bool streamSwapNeeded();
+  bool streamSwapBuffers();
   VolumeData getVolumeData();
 
   const SoundBuffer& soundBuffer() const { 
     assert(tag == SoundType); 
-    return sound_buffer_;
+    return *(SoundBuffer*)&sound_buffer_;
   }
   const StreamBuffer& streamBuffer() const  { 
     assert(tag == StreamType); 
-    return stream_buffer_;
+    return *(StreamBuffer*)&stream_buffer_;
   }
   SoundBuffer& soundBuffer() { 
     assert(tag == SoundType); 
-    return sound_buffer_;
+    return *(SoundBuffer*)&sound_buffer_;
   }
   StreamBuffer& streamBuffer() { 
     assert(tag == StreamType); 
-    return stream_buffer_;
+    return *(StreamBuffer*)&stream_buffer_;
   }
   union {
     Sound *sound;
     Stream *stream;
   };
   union {
-    SoundBuffer sound_buffer_;
-    StreamBuffer stream_buffer_;
+    SoundBuffer_ sound_buffer_;
+    StreamBuffer_ stream_buffer_;
   };
   int loop_count; // -1 for infinite loop, 0 to play once, n to loop n times
   int buffer_pos; // byte pos in sound/stream
@@ -421,10 +436,9 @@ void System::update()
         sound.updateFromSound();
       }
     } else {
-      StreamBuffer &stream_buf = sound.stream->buffer;
       // failed to advance in audioCallback, so try here
-      if (sound.streamSwapNeeded(stream_buf)) {
-        sound.streamSwapBuffers(stream_buf);
+      if (sound.streamSwapNeeded()) {
+        sound.streamSwapBuffers();
         if (sound.isFinished()) { // finished or error occurred
           continue; // will be removed at top of loop
         }
@@ -764,13 +778,14 @@ void PlayingSound::decrementLoopCount()
 }
 
 inline
-bool PlayingSound::streamSwapNeeded(const StreamBuffer &sbuf) 
+bool PlayingSound::streamSwapNeeded() 
 {
-  return buffer_pos == sbuf.size();
+  return buffer_pos == streamBuffer().size();
 }
 
-bool PlayingSound::streamSwapBuffers(StreamBuffer &sbuf)
+bool PlayingSound::streamSwapBuffers()
 {
+  StreamBuffer &sbuf = streamBuffer();
   StreamResult result = sbuf.swapBuffers();
   if (result == StreamReady) {
     if (sbuf.endPos() == 0) { // EOF seen immediately on read
@@ -1066,7 +1081,7 @@ int copyStream(CopyFunc copy, uint8_t *buffer, const int buf_len,
         }
       }
 
-      if (!stream.streamSwapBuffers(stream_buf)) {
+      if (!stream.streamSwapBuffers()) {
         break;
       }
     } else { // end of stream and not end of buffer

@@ -132,8 +132,10 @@ void Sound::fadeout(float fade_secs)
 
 void Sound::detach()
 {
-  System::detachSound(this);
-  mix_idx = -1;
+  if (isPlaying()) {
+    System::detachSound(this);
+    mix_idx = -1;
+  }
 }
 
 bool Sound::isPlaying() const { return mix_idx != -1; }

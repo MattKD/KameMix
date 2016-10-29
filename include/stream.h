@@ -14,6 +14,7 @@ public:
   bool load(const char *filename, double sec = 0.0);
   bool loadOGG(const char *filename, double sec = 0.0);
   bool loadWAV(const char *filename, double sec = 0.0);
+  // Releases audio buffer, and stops if playing.
   void release();
   bool isLoaded();
 
@@ -39,7 +40,7 @@ public:
                 bool paused = false); 
   void halt(); // instant remove
   void stop(); // removes with min fade
-  void detach();
+  void detach(); // leaves copy in mixer, and releases own buffer
 
   // fade_secs = 0 for instant remove, same as halt(); -1 for fastest fade,
   // same as stop()

@@ -69,7 +69,9 @@ private:
                        bool paused, float fade);
   static void haltSound(Sound *s);  
   static void haltStream(Stream *s);  
-  static void stopSound(int idx, float fade_secs);  
+  static void stopSound(Sound *s);  
+  static void stopStream(Stream *s);  
+  static void fadeoutSound(int idx, float fade_secs);  
   static void detachSound(Sound *s);
   static void detachStream(Stream *s);
   static void setSoundLoopCount(int idx, int loops);

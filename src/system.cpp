@@ -602,11 +602,29 @@ void System::haltStream(Stream *s)
   sound.streamBuffer().release();
 }
 
-void System::stopSound(int idx, float fade_secs)
+void System::fadeoutSound(int idx, float fade)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   PlayingSound &sound = (*system_.sounds)[idx];
-  sound.setFadeout(fade_secs);
+  sound.setFadeout(fade);
+}
+
+void System::stopSound(Sound *s)
+{
+  std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  PlayingSound &sound = (*system_.sounds)[s->mix_idx];
+  sound.setFadeout(-1);
+  sound.sound = nullptr;
+  assert(sound.isSoundDetached());
+}
+
+void System::stopStream(Stream *s)
+{
+  std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  PlayingSound &sound = (*system_.sounds)[s->mix_idx];
+  sound.setFadeout(-1);
+  sound.stream = nullptr;
+  assert(sound.isStreamDetached());
 }
 
 void System::detachSound(Sound *s)
@@ -793,11 +811,6 @@ void PlayingSound::setFadein(float fade)
 
 // set fade_total to negative for fadeout
 void PlayingSound::setFadeout(float fade) {
-  if (fade == 0.0f) {
-    fade_total = 0.0f;
-    fade_time = 0.0f;
-    return;
-  } 
   if (fade > system_.secs_per_callback) {
     fade_total = -fade;
     fade_time = fade; 

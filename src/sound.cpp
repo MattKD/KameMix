@@ -20,7 +20,6 @@ Sound& Sound::operator=(const Sound &other)
 {
   if (this != &other) {
     stop();
-    detach(); // mix_idx = -1 after
     buffer = other.buffer;
     group = other.group;
     volume = other.volume;
@@ -34,34 +33,29 @@ Sound& Sound::operator=(const Sound &other)
 Sound::~Sound() 
 { 
   stop();
-  detach();
 }
 
 bool Sound::load(const char *filename) 
 { 
   stop();
-  detach();
   return buffer.load(filename); 
 }
 
 bool Sound::loadOGG(const char *filename) 
 { 
   stop();
-  detach();
   return buffer.loadOGG(filename); 
 }
 
 bool Sound::loadWAV(const char *filename) 
 { 
   stop();
-  detach();
   return buffer.loadWAV(filename); 
 }
 
 void Sound::release() 
 { 
   stop();
-  detach();
   buffer.release(); 
 }
 
@@ -107,7 +101,6 @@ void Sound::fadein(float fade_secs, int loops, bool paused)
 {
   if (buffer.isLoaded()) {
     stop();
-    detach();
     mix_idx = System::addSound(this, loops, 0, paused, fade_secs);
   }
 }
@@ -116,7 +109,6 @@ void Sound::fadeinDetached(float fade_secs, int loops)
 {
   if (buffer.isLoaded()) {
     stop();
-    detach();
     System::addSoundDetached(this, loops, 0, fade_secs);
   }
 }
@@ -146,7 +138,6 @@ void Sound::fadeinAt(double sec, float fade_secs, int loops, bool paused)
 {
   if (buffer.isLoaded()) {
     stop();
-    detach();
     int byte_pos = bytePos(sec, buffer);
     mix_idx = System::addSound(this, loops, byte_pos, paused, fade_secs);
   }
@@ -156,27 +147,44 @@ void Sound::fadeinAtDetached(double sec, float fade_secs, int loops)
 {
   if (buffer.isLoaded()) {
     stop();
-    detach();
     int byte_pos = bytePos(sec, buffer);
     System::addSoundDetached(this, loops, byte_pos, fade_secs);
   }
 }
 
-void Sound::halt() { fadeout(0); } // instant remove
-void Sound::stop() { fadeout(-1); } // removes with min fade
+// Stops sound without a fade, and detaches.
+void Sound::halt() 
+{ 
+  if (isPlaying()) {
+    System::haltSound(this);
+    mix_idx = -1;
+  }
+} 
 
+// Fades out very fast to prevent popping, and detaches.
+void Sound::stop() 
+{ 
+  if (isPlaying()) {
+    System::stopSound(this);
+    mix_idx = -1;
+  }
+}
+
+// fade_secs = 0.0f will halt Sound, -1 will have minimum fade. 
+// Does not detach.
 void Sound::fadeout(float fade_secs)
 {
   if (isPlaying()) {
     if (fade_secs == 0) {
-      System::haltSound(this);
-      mix_idx = -1;
+      halt();
     } else {
-      System::stopSound(mix_idx, fade_secs);
+      System::fadeoutSound(mix_idx, fade_secs);
     }
   }
 }
 
+// Sound will continue playing in mixer as a copy. The copy will unpause, and
+// cannot be updated or stopped.
 void Sound::detach()
 {
   if (isPlaying()) {

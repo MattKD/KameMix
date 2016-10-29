@@ -18,14 +18,12 @@ Stream::Stream(const char *filename, double sec) :
 
 Stream::~Stream() 
 { 
-  stop();
-  detach();
+  release();
 }
 
 bool Stream::load(const char *filename, double sec) 
 { 
-  stop();
-  detach();
+  release();
   if (buffer.load(filename, sec)) {
     readMore();
     return true;
@@ -35,8 +33,7 @@ bool Stream::load(const char *filename, double sec)
 
 bool Stream::loadOGG(const char *filename, double sec) 
 { 
-  stop();
-  detach();
+  release();
   if (buffer.loadOGG(filename, sec)) {
     readMore();
     return true;
@@ -46,8 +43,7 @@ bool Stream::loadOGG(const char *filename, double sec)
 
 bool Stream::loadWAV(const char *filename, double sec) 
 { 
-  stop();
-  detach();
+  release();
   if (buffer.loadWAV(filename, sec)) {
     readMore();
     return true;
@@ -57,8 +53,11 @@ bool Stream::loadWAV(const char *filename, double sec)
 
 void Stream::release() 
 { 
-  stop();
-  detach(); // releases buffer
+  if (isPlaying()) {
+    System::stopStream(this);
+    mix_idx = -1;
+  }
+  buffer.release();
 }
 
 bool Stream::isLoaded() { return buffer.isLoaded(); }
@@ -140,17 +139,26 @@ void Stream::fadeinAt(double sec, float fade_secs, int loops, bool paused)
   }
 }
 
-void Stream::halt() { fadeout(0); }
-void Stream::stop() { fadeout(-1); }
+void Stream::halt() 
+{ 
+  if (isPlaying()) {
+    System::haltStream(this);
+    mix_idx = -1;
+  }
+}
+
+void Stream::stop() 
+{ 
+  fadeout(-1); 
+}
 
 void Stream::fadeout(float fade_secs)
 {
   if (isPlaying()) {
     if (fade_secs == 0) {
-      System::haltStream(this);
-      mix_idx = -1;
+      halt();
     } else {
-      System::stopSound(mix_idx, fade_secs);
+      System::fadeoutSound(mix_idx, fade_secs);
     }
   }
 }

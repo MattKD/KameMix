@@ -373,9 +373,13 @@ void System::shutdown()
 
   for (PlayingSound &sound : *system_.sounds) {
     if (sound.tag == SoundType) {
-      sound.sound->mix_idx = -1;
+      if (!sound.isSoundDetached()) {
+        sound.sound->mix_idx = -1;
+      }
     } else {
-      sound.stream->mix_idx = -1;
+      if (!sound.isStreamDetached()) {
+        sound.stream->mix_idx = -1;
+      }
     }
   }
 

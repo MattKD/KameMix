@@ -28,7 +28,6 @@ enum PlayingType : uint8_t {
 enum PlayState : uint8_t {
   PlayingState,
   FinishedState,
-  HaltState, // mix_idx unset
   PausedState,
   PausingState,
   UnpausingState
@@ -94,7 +93,6 @@ struct PlayingSound {
 
   bool isPlaying() const { return state == PlayingState; }
   bool isFinished() const { return state == FinishedState; }
-  bool isHalted() const { return state == HaltState; }
   bool isPaused() const { return state == PausedState; }
   bool isPausing() const { return state == PausingState; }
   bool isUnpausing() const { return state == UnpausingState; }
@@ -407,18 +405,15 @@ void System::update()
   int idx = 0;
   while (idx < sounds_sz) { 
     PlayingSound &sound = (*system_.sounds)[idx];
-    // sound finished playing or was halted
-    if (sound.isFinished() || sound.isHalted()) { 
-      // only unset mix_idx if it finished playing and wasn't halted
-      if (!sound.isHalted()) { 
-        if (sound.tag == SoundType) {
-          if (!sound.isSoundDetached()) {
-            sound.sound->mix_idx = -1;
-          }
-        } else {
-          if (!sound.isStreamDetached()) {
-            sound.stream->mix_idx = -1;
-          }
+    if (sound.isFinished()) { 
+      // only unset mix_idx if it wasn't detached or halted
+      if (sound.tag == SoundType) {
+        if (!sound.isSoundDetached()) {
+          sound.sound->mix_idx = -1;
+        }
+      } else {
+        if (!sound.isStreamDetached()) {
+          sound.stream->mix_idx = -1;
         }
       }
 
@@ -481,7 +476,7 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
   for (int i = 0; i < (int)system_.sounds->size(); ++i) {
     // system_.audio_mutex must be locked while using sound
     PlayingSound &sound = (*system_.sounds)[i];
-    // not paused, halted, or finished
+    // not paused or finished
     if (sound.isPlaying() || sound.isPauseChanging()) {
       int total_copied = 0; 
 
@@ -580,14 +575,25 @@ int System::addStream(Stream *stream, int loops, int pos, bool paused,
   return (int)system_.sounds->size() - 1;
 }
 
-void System::removeSound(int idx)
+void System::haltSound(Sound *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
-  PlayingSound &sound = (*system_.sounds)[idx];
-  sound.state = HaltState;
+  PlayingSound &sound = (*system_.sounds)[s->mix_idx];
+  sound.state = FinishedState;
+  sound.sound = nullptr;
+  sound.soundBuffer().release();
 }
 
-void System::removeSound(int idx, float fade_secs)
+void System::haltStream(Stream *s)
+{
+  std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  PlayingSound &sound = (*system_.sounds)[s->mix_idx];
+  sound.state = FinishedState;
+  sound.stream = nullptr;
+  sound.streamBuffer().release();
+}
+
+void System::stopSound(int idx, float fade_secs)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
   PlayingSound &sound = (*system_.sounds)[idx];

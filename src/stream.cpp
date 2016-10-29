@@ -147,10 +147,10 @@ void Stream::fadeout(float fade_secs)
 {
   if (isPlaying()) {
     if (fade_secs == 0) {
-      System::removeSound(mix_idx);
+      System::haltStream(this);
       mix_idx = -1;
     } else {
-      System::removeSound(mix_idx, fade_secs);
+      System::stopSound(mix_idx, fade_secs);
     }
   }
 }

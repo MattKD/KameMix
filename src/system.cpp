@@ -104,11 +104,11 @@ struct PlayingSound {
     return lvolume != new_lvol || rvolume != new_rvol; }
   bool isSoundDetached() {
     assert(tag == SoundType);
-    return sound == nullptr;
+    return sound_ == nullptr;
   }
   bool isStreamDetached() {
     assert(tag == StreamType);
-    return stream == nullptr;
+    return stream_ == nullptr;
   }
 
   void setFadein(float fade);
@@ -123,6 +123,23 @@ struct PlayingSound {
   bool streamSwapNeeded();
   bool streamSwapBuffers();
   VolumeData getVolumeData();
+
+  const Sound& sound() const { 
+    assert(tag == SoundType); 
+    return *sound_;
+  }
+  Sound& sound() { 
+    assert(tag == SoundType); 
+    return *sound_;
+  }
+  const Stream& stream() const { 
+    assert(tag == StreamType); 
+    return *stream_;
+  }
+  Stream& stream() { 
+    assert(tag == StreamType); 
+    return *stream_;
+  }
 
   const SoundBuffer& soundBuffer() const { 
     assert(tag == SoundType); 
@@ -140,9 +157,10 @@ struct PlayingSound {
     assert(tag == StreamType); 
     return *(StreamBuffer*)&stream_buffer_;
   }
+
   union {
-    Sound *sound;
-    Stream *stream;
+    Sound *sound_;
+    Stream *stream_;
   };
   union {
     SoundBuffer_ sound_buffer_;
@@ -372,11 +390,11 @@ void System::shutdown()
   for (PlayingSound &sound : *system_.sounds) {
     if (sound.tag == SoundType) {
       if (!sound.isSoundDetached()) {
-        sound.sound->mix_idx = -1;
+        sound.sound().mix_idx = -1;
       }
     } else {
       if (!sound.isStreamDetached()) {
-        sound.stream->mix_idx = -1;
+        sound.stream().mix_idx = -1;
       }
     }
   }
@@ -409,11 +427,11 @@ void System::update()
       // only unset mix_idx if it wasn't detached or halted
       if (sound.tag == SoundType) {
         if (!sound.isSoundDetached()) {
-          sound.sound->mix_idx = -1;
+          sound.sound().mix_idx = -1;
         }
       } else {
         if (!sound.isStreamDetached()) {
-          sound.stream->mix_idx = -1;
+          sound.stream().mix_idx = -1;
         }
       }
 
@@ -422,11 +440,11 @@ void System::update()
         sound = system_.sounds->back();
         if (sound.tag == SoundType) {
           if (!sound.isSoundDetached()) {
-            sound.sound->mix_idx = idx;
+            sound.sound().mix_idx = idx;
           }
         } else {
           if (!sound.isStreamDetached()) {
-            sound.stream->mix_idx = idx;
+            sound.stream().mix_idx = idx;
           }
         }
         system_.sounds->pop_back();
@@ -525,6 +543,8 @@ void System::audioCallback(void *udata, uint8_t *stream, const int len)
 void System::setSoundLoopCount(int idx, int loops)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(idx >= 0 && idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[idx];
   sound.loop_count = loops;
 }
@@ -532,6 +552,8 @@ void System::setSoundLoopCount(int idx, int loops)
 void System::pauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(idx >= 0 && idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[idx];
   if (sound.isPlaying()) { 
     sound.state = PausingState;
@@ -543,6 +565,8 @@ void System::pauseSound(int idx)
 void System::unpauseSound(int idx)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(idx >= 0 && idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[idx];
   if (sound.isPaused()) { 
     sound.state = UnpausingState;
@@ -554,13 +578,26 @@ void System::unpauseSound(int idx)
 bool System::isSoundPaused(int idx)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(idx >= 0 && idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[idx];
   return sound.isPaused() || sound.isPausing(); 
+}
+
+void System::fadeoutSound(int idx, float fade)
+{
+  std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(idx >= 0 && idx < (int)system_.sounds->size());
+
+  PlayingSound &sound = (*system_.sounds)[idx];
+  sound.setFadeout(fade);
 }
 
 int System::addSound(Sound *sound, int loops, int pos, bool paused, float fade)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(sound->mix_idx == -1); 
+
   system_.sounds->push_back(PlayingSound(sound, sound->buffer, loops, pos, 
                                          fade, paused));
   return (int)system_.sounds->size() - 1;
@@ -569,9 +606,11 @@ int System::addSound(Sound *sound, int loops, int pos, bool paused, float fade)
 void System::addSoundDetached(Sound *sound, int loops, int pos, float fade)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(sound->mix_idx == -1); 
+
   system_.sounds->push_back(PlayingSound(sound, sound->buffer, loops, pos, 
                                          fade, false));
-  system_.sounds->back().sound = nullptr;
+  system_.sounds->back().sound_ = nullptr;
   assert(system_.sounds->back().isSoundDetached());
 }
 
@@ -579,6 +618,8 @@ int System::addStream(Stream *stream, int loops, int pos, bool paused,
                       float fade)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(stream->mix_idx == -1); 
+
   system_.sounds->push_back(PlayingSound(stream, stream->buffer, loops, pos, 
                             fade, paused));
   return (int)system_.sounds->size() - 1;
@@ -587,51 +628,54 @@ int System::addStream(Stream *stream, int loops, int pos, bool paused,
 void System::haltSound(Sound *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(s->mix_idx >= 0 && s->mix_idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[s->mix_idx];
   sound.state = FinishedState;
-  sound.sound = nullptr;
+  sound.sound_ = nullptr;
   sound.soundBuffer().release();
 }
 
 void System::haltStream(Stream *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(s->mix_idx >= 0 && s->mix_idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[s->mix_idx];
   sound.state = FinishedState;
-  sound.stream = nullptr;
+  sound.stream_ = nullptr;
   sound.streamBuffer().release();
-}
-
-void System::fadeoutSound(int idx, float fade)
-{
-  std::lock_guard<std::mutex> guard(system_.audio_mutex);
-  PlayingSound &sound = (*system_.sounds)[idx];
-  sound.setFadeout(fade);
 }
 
 void System::stopSound(Sound *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(s->mix_idx >= 0 && s->mix_idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[s->mix_idx];
   sound.setFadeout(-1);
-  sound.sound = nullptr;
+  sound.sound_ = nullptr;
   assert(sound.isSoundDetached());
 }
 
 void System::stopStream(Stream *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(s->mix_idx >= 0 && s->mix_idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[s->mix_idx];
   sound.setFadeout(-1);
-  sound.stream = nullptr;
+  sound.stream_ = nullptr;
   assert(sound.isStreamDetached());
 }
 
 void System::detachSound(Sound *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(s->mix_idx >= 0 && s->mix_idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[s->mix_idx];
-  sound.sound = nullptr;
+  sound.sound_ = nullptr;
   if (sound.isPaused() || sound.isPausing()) {
     sound.state = PlayingState;
   }
@@ -641,14 +685,15 @@ void System::detachSound(Sound *s)
 void System::detachStream(Stream *s)
 {
   std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  assert(s->mix_idx >= 0 && s->mix_idx < (int)system_.sounds->size());
+
   PlayingSound &sound = (*system_.sounds)[s->mix_idx];
-  sound.stream = nullptr;
+  sound.stream_ = nullptr;
   if (sound.isPaused() || sound.isPausing()) {
     sound.state = PlayingState;
   }
   assert(sound.isStreamDetached());
 }
-
 
 } // end namespace KameMix
 
@@ -660,7 +705,7 @@ namespace {
 
 PlayingSound::PlayingSound(Sound *s, SoundBuffer &sbuf, int loops, 
                            int buf_pos, float fade, bool paused)
-  : sound{s}, loop_count{loops}, buffer_pos{buf_pos}, tag{SoundType}
+  : sound_{s}, loop_count{loops}, buffer_pos{buf_pos}, tag{SoundType}
 {
   new (&sound_buffer_) SoundBuffer(sbuf);
   setFadein(fade);
@@ -676,7 +721,7 @@ PlayingSound::PlayingSound(Sound *s, SoundBuffer &sbuf, int loops,
 
 PlayingSound::PlayingSound(Stream *s, StreamBuffer &sbuf, int loops,
                            int buf_pos, float fade, bool paused)
-  : stream{s}, loop_count{loops}, buffer_pos{buf_pos}, tag{StreamType}
+  : stream_{s}, loop_count{loops}, buffer_pos{buf_pos}, tag{StreamType}
 {
   new (&stream_buffer_) StreamBuffer(sbuf);
   setFadein(fade);
@@ -699,9 +744,10 @@ void PlayingSound::release()
   case StreamType:
     streamBuffer().~StreamBuffer();
     break;
-  default:
+  case InvalidType:
     break;
   }
+  tag = InvalidType;
 }
 
 PlayingSound::PlayingSound(const PlayingSound &other)
@@ -713,14 +759,14 @@ PlayingSound::PlayingSound(const PlayingSound &other)
 {
   switch (tag) {
   case SoundType:
-    sound = other.sound;
+    sound_ = other.sound_;
     new (&sound_buffer_) SoundBuffer(other.soundBuffer());
     break;
   case StreamType:
-    stream = other.stream;
+    stream_ = other.stream_;
     new (&stream_buffer_) StreamBuffer(other.streamBuffer());
     break;
-  default:
+  case InvalidType:
     break;
   }
 }
@@ -731,14 +777,14 @@ PlayingSound& PlayingSound::operator=(const PlayingSound &other)
     release();
     switch (other.tag) {
     case SoundType:
-      sound = other.sound;
+      sound_ = other.sound_;
       new (&sound_buffer_) SoundBuffer(other.soundBuffer());
       break;
     case StreamType:
-      stream = other.stream;
+      stream_ = other.stream_;
       new (&stream_buffer_) StreamBuffer(other.streamBuffer());
       break;
-    default:
+    case InvalidType:
       break;
     }
 
@@ -760,17 +806,18 @@ PlayingSound& PlayingSound::operator=(const PlayingSound &other)
 inline
 void PlayingSound::updateFromSound()
 {
-  new_volume = sound->getVolume() * system_.master_volume;
-  const int group = sound->getGroup();
+  assert(tag == SoundType);
+  new_volume = sound_->getVolume() * system_.master_volume;
+  const int group = sound_->getGroup();
   if (group >= 0) {
     new_volume *= (*system_.groups)[group];
   }
 
   // get relative position if max_distance set to valid value
-  const float max_distance = sound->getMaxDistance();
+  const float max_distance = sound_->getMaxDistance();
   if (max_distance > 0) {
-    x = (sound->getX() - system_.listener_x) / max_distance;
-    y = (sound->getY() - system_.listener_y) / max_distance;
+    x = (sound_->getX() - system_.listener_x) / max_distance;
+    y = (sound_->getY() - system_.listener_y) / max_distance;
   } else { // max_distance not set, so not using position data
     x = 0;
     y = 0;
@@ -780,17 +827,18 @@ void PlayingSound::updateFromSound()
 inline
 void PlayingSound::updateFromStream()
 {
-  new_volume = stream->getVolume() * system_.master_volume;
-  const int group = stream->getGroup();
+  assert(tag == StreamType);
+  new_volume = stream_->getVolume() * system_.master_volume;
+  const int group = stream_->getGroup();
   if (group >= 0) {
     new_volume *= (*system_.groups)[group];
   }
 
   // get relative position if max_distance set to valid value
-  const float max_distance = stream->getMaxDistance();
+  const float max_distance = stream_->getMaxDistance();
   if (max_distance > 0) {
-    x = (stream->getX() - system_.listener_x) / max_distance;
-    y = (stream->getY() - system_.listener_y) / max_distance;
+    x = (stream_->getX() - system_.listener_x) / max_distance;
+    y = (stream_->getY() - system_.listener_y) / max_distance;
   } else { // max_distance not set, so not using position data
     x = 0;
     y = 0;

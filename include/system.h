@@ -64,6 +64,7 @@ public:
 private:
   static int addSound(Sound *sound, int loops, int pos, bool paused, 
                       float fade);
+  static void addSoundDetached(Sound *sound, int loops, int pos, float fade);
   static int addStream(Stream *stream, int loops, int pos,  
                        bool paused, float fade);
   static void haltSound(Sound *s);  

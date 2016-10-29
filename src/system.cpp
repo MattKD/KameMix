@@ -566,6 +566,15 @@ int System::addSound(Sound *sound, int loops, int pos, bool paused, float fade)
   return (int)system_.sounds->size() - 1;
 }
 
+void System::addSoundDetached(Sound *sound, int loops, int pos, float fade)
+{
+  std::lock_guard<std::mutex> guard(system_.audio_mutex);
+  system_.sounds->push_back(PlayingSound(sound, sound->buffer, loops, pos, 
+                                         fade, false));
+  system_.sounds->back().sound = nullptr;
+  assert(system_.sounds->back().isSoundDetached());
+}
+
 int System::addStream(Stream *stream, int loops, int pos, bool paused, 
                       float fade)
 {

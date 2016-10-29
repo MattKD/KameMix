@@ -36,10 +36,14 @@ public:
   void unsetGroup();
 
   void play(int loops = 0, bool paused = false); 
+  void playDetached(int loops = 0); 
   void fadein(float fade_secs, int loops = 0, bool paused = false);
+  void fadeinDetached(float fade_secs, int loops = 0);
   void playAt(double sec, int loops = 0, bool paused = false);
+  void playAtDetached(double sec, int loops = 0);
   void fadeinAt(double sec, float fade_secs, int loops = 0, 
                 bool paused = false); 
+  void fadeinAtDetached(double sec, float fade_secs, int loops = 0);
   void halt(); // instant remove
   void stop(); // removes with min fade
   void fadeout(float fade_secs);

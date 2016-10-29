@@ -411,26 +411,32 @@ void test7()
 
   cout << "Play same spell3 3 times 500ms apart without detach()\n";
   spell3.play();
+  assert(spell3.isPlaying());
   update_ms(500);
   spell3.play();
+  assert(spell3.isPlaying());
   update_ms(500);
   spell3.play();
   update_ms(2000);
 
   cout << "Play same spell3 3 times 500ms apart with detach()\n";
   spell3.play();
+  assert(spell3.isPlaying());
   spell3.detach();
+  assert(!spell3.isPlaying());
+  update_ms(500);
+  spell3.playDetached();
+  assert(!spell3.isPlaying());
   update_ms(500);
   spell3.play();
+  assert(spell3.isPlaying());
   spell3.detach();
-  update_ms(500);
-  spell3.play();
-  spell3.detach();
+  assert(!spell3.isPlaying());
   update_ms(500);
   update_ms(2000);
 
   cout << "Play stream, fadeout over 10secs and detach\n";
-  music1.play();
+  music1.play(-1);
   music1.fadeout(10);
   music1.detach();
   assert(!music1.isLoaded());

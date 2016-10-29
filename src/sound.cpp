@@ -98,6 +98,11 @@ void Sound::play(int loops, bool paused)
   fadein(-1, loops, paused);
 }
 
+void Sound::playDetached(int loops) 
+{
+  fadeinDetached(-1, loops);
+}
+
 void Sound::fadein(float fade_secs, int loops, bool paused) 
 {
   if (buffer.isLoaded()) {
@@ -107,9 +112,34 @@ void Sound::fadein(float fade_secs, int loops, bool paused)
   }
 }
 
+void Sound::fadeinDetached(float fade_secs, int loops) 
+{
+  if (buffer.isLoaded()) {
+    stop();
+    detach();
+    System::addSoundDetached(this, loops, 0, fade_secs);
+  }
+}
+
 void Sound::playAt(double sec, int loops, bool paused)
 {
   fadeinAt(sec, -1, loops, paused);
+}
+
+void Sound::playAtDetached(double sec, int loops)
+{
+  fadeinAtDetached(sec, -1, loops);
+}
+
+static inline
+int bytePos(double sec, const SoundBuffer &sbuf)
+{
+  int sample_pos = (int) (sec * System::getFrequency());
+  int byte_pos = sample_pos * sbuf.sampleBlockSize();
+  if (byte_pos < 0 || byte_pos >= sbuf.size()) {
+    byte_pos = 0;
+  }
+  return byte_pos;
 }
 
 void Sound::fadeinAt(double sec, float fade_secs, int loops, bool paused) 
@@ -117,12 +147,18 @@ void Sound::fadeinAt(double sec, float fade_secs, int loops, bool paused)
   if (buffer.isLoaded()) {
     stop();
     detach();
-    int sample_pos = (int) (sec * System::getFrequency());
-    int byte_pos = sample_pos * buffer.sampleBlockSize();
-    if (byte_pos < 0 || byte_pos >= buffer.size()) {
-      byte_pos = 0;
-    }
+    int byte_pos = bytePos(sec, buffer);
     mix_idx = System::addSound(this, loops, byte_pos, paused, fade_secs);
+  }
+}
+
+void Sound::fadeinAtDetached(double sec, float fade_secs, int loops) 
+{
+  if (buffer.isLoaded()) {
+    stop();
+    detach();
+    int byte_pos = bytePos(sec, buffer);
+    System::addSoundDetached(this, loops, byte_pos, fade_secs);
   }
 }
 

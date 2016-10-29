@@ -8,8 +8,13 @@ Stream::Stream() :
   group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, max_distance{0} { }
 
 Stream::Stream(const char *filename, double sec) : 
-  buffer(filename, sec), group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, 
-  max_distance{0} { }
+  group{-1}, mix_idx{-1}, volume{1.0f}, x{0}, y{0}, 
+  max_distance{0} 
+{ 
+  if (buffer.load(filename, sec)) {
+    readMore();
+  }
+}
 
 Stream::~Stream() 
 { 

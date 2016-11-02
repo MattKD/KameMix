@@ -19,26 +19,20 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\include\declspec.h" />
-    <ClInclude Include="..\..\include\KameMix.h" />
-    <ClInclude Include="..\..\include\sound.h" />
-    <ClInclude Include="..\..\include\sound_buffer.h" />
-    <ClInclude Include="..\..\include\stream.h" />
-    <ClInclude Include="..\..\include\stream_buffer.h" />
-    <ClInclude Include="..\..\include\system.h" />
+    <ClInclude Include="..\..\include\KameMix\declspec.h" />
+    <ClInclude Include="..\..\include\KameMix\KameMix.h" />
     <ClInclude Include="..\..\src\audio_mem.h" />
     <ClInclude Include="..\..\src\scope_exit.h" />
     <ClInclude Include="..\..\src\sdl_helper.h" />
-    <ClInclude Include="..\..\src\util.h" />
+    <ClInclude Include="..\..\src\sound_buffer.h" />
+    <ClInclude Include="..\..\src\stream_buffer.h" />
     <ClInclude Include="..\..\src\vorbis_helper.h" />
     <ClInclude Include="..\..\src\wav_loader.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\sound.cpp" />
+    <ClCompile Include="..\..\src\KameMix.cpp" />
     <ClCompile Include="..\..\src\sound_buffer.cpp" />
-    <ClCompile Include="..\..\src\stream.cpp" />
     <ClCompile Include="..\..\src\stream_buffer.cpp" />
-    <ClCompile Include="..\..\src\system.cpp" />
     <ClCompile Include="..\..\src\vorbis_helper.cpp" />
     <ClCompile Include="..\..\src\wav_loader.cpp" />
   </ItemGroup>
@@ -99,19 +93,19 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\include\KameMix\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\include\KameMix\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\include\KameMix\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)..\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)..\include\KameMix\;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>

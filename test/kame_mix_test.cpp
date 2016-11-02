@@ -1,11 +1,14 @@
-#include <KameMix.h>
+#include <Kamemix/KameMix.h>
+#include "sound.h"
+#include "stream.h"
 #include <cmath>
 #include <cassert>
 #include <thread>
 #include <chrono>
 #include <iostream>
 
-using namespace KameMix;
+using KameMix::Sound;
+using KameMix::Stream;
 using std::cout;
 using std::cerr;
 
@@ -19,8 +22,8 @@ Sound music2;
 const int frames_per_sec = 60;
 const double frame_ms = 1000.0 / frames_per_sec;
 
-double update_ms(double msec);
 bool loadAudio();
+void releaseAudio();
 void test1();
 void test2();
 void test3();
@@ -29,11 +32,18 @@ void test5();
 void test6();
 void test7();
 
+inline
+void sleep_ms(double msec)
+{
+  const std::chrono::duration<double, std::milli> sleep_duration(msec);
+  std::this_thread::sleep_for(sleep_duration);
+}
+
 int main(int argc, char *argv[])
 {
-  //OutputFormat format = OutputS16;
-  OutputFormat format = OutputFloat;
-  if (!System::init(44100, 2048, format)) {
+  //KameMix_OutputFormat format = KameMix_OutputS16;
+  KameMix_OutputFormat format = KameMix_OutputFloat;
+  if (!KameMix_init(44100, 2048, format)) {
     cout << "System::init failed\n";
     return 1;
   }
@@ -44,24 +54,24 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
 
-  assert(System::getMasterVolume() == 1.0f);
-  System::setMasterVolume(.5f);
-  assert(System::getMasterVolume() == .5f);
-  System::setMasterVolume(1.0f);
+  assert(KameMix_getMasterVolume() == 1.0f);
+  KameMix_setMasterVolume(.5f);
+  assert(KameMix_getMasterVolume() == .5f);
+  KameMix_setMasterVolume(1.0f);
 
   {
     float a, b;
-    System::getListenerPos(a, b);
+    KameMix_getListenerPos(&a, &b);
     assert(a == 0 && b == 0);
 
-    System::setListenerPos(.5f, .75f);
-    System::getListenerPos(a, b);
+    KameMix_setListenerPos(.5f, .75f);
+    KameMix_getListenerPos(&a, &b);
     assert(a == .5f && b == .75f);
   }
 
-  int group1 = System::createGroup();
-  System::setGroupVolume(group1, .75f);
-  assert(System::getGroupVolume(group1) == .75f);
+  int group1 = KameMix_createGroup();
+  KameMix_setGroupVolume(group1, .75f);
+  assert(KameMix_getGroupVolume(group1) == .75f);
 
   assert(spell1.getGroup() == -1);
   spell1.setGroup(group1);
@@ -80,7 +90,43 @@ int main(int argc, char *argv[])
 
   cout << "Test complete\n";
 
-  System::shutdown();
+  releaseAudio(); // must release before shutdown!
+
+  // all should be released
+  assert(!spell1.isPlaying());
+  assert(!spell1.isLoaded());
+  assert(!spell3.isPlaying());
+  assert(!spell3.isLoaded());
+  assert(!cow.isPlaying());
+  assert(!cow.isLoaded());
+  assert(!duck.isPlaying());
+  assert(!duck.isLoaded());
+  assert(!music1.isPlaying());
+  assert(!music1.isLoaded());
+  assert(!music2.isPlaying());
+  assert(!music2.isLoaded());
+
+  // play should be ignored after release
+  spell1.play();
+  spell3.play();
+  cow.play();
+  duck.play();
+  music1.play();
+  music2.play();
+  assert(!spell1.isPlaying());
+  assert(!spell1.isLoaded());
+  assert(!spell3.isPlaying());
+  assert(!spell3.isLoaded());
+  assert(!cow.isPlaying());
+  assert(!cow.isLoaded());
+  assert(!duck.isPlaying());
+  assert(!duck.isLoaded());
+  assert(!music1.isPlaying());
+  assert(!music1.isLoaded());
+  assert(!music2.isPlaying());
+  assert(!music2.isLoaded());
+
+  KameMix_shutdown();
   cout << "Shutdown KameMix\n";
 
   return 0;
@@ -133,26 +179,21 @@ bool loadAudio()
   return true;
 }
 
-double update_ms(double msec)
+void releaseAudio()
 {
-  const std::chrono::duration<double, std::milli> sleep_duration(frame_ms);
-  double total_time = 0;
-  while (true) {
-    System::update();
-    std::this_thread::sleep_for(sleep_duration);
-    total_time += frame_ms;
-    if (total_time >= msec) {
-      break;
-    }
-  }
-  return total_time;
+  spell1.release();
+  spell3.release();
+  cow.release();
+  duck.release();
+  music1.release();
+  music2.release();
 }
 
 void test1()
 {
-  cout << "Test1: Tests playing multiple sounds/streams at once\n";
+  cout << "\nTest1: Tests playing multiple sounds/streams at once\n";
 
-  cout << "Play music1\n";
+  cout << "Play music2\n";
   music2.play();
 
   cout << "Play spell1 7 times\n";
@@ -171,15 +212,15 @@ void test1()
   duck.play(6);
   assert(duck.isPlaying());
 
-  update_ms(frame_ms);
-  assert(System::numberPlaying() == 5);
+  sleep_ms(frame_ms);
+  assert(KameMix_numberPlaying() == 5);
 
   while (true) {
-    update_ms(1000);
-    if (System::numberPlaying() == 1) {
+    sleep_ms(1000);
+    if (KameMix_numberPlaying() == 1) {
       cout << "Stop music2\n";
       music2.stop();
-    } else if (System::numberPlaying() == 0) {
+    } else if (KameMix_numberPlaying() == 0) {
       break;
     }
   }
@@ -189,33 +230,33 @@ void test1()
 
 void test2()
 {
-  cout << "Test2: Tests fading in/out, and pausing\n";
+  cout << "\nTest2: Tests fading in/out, and pausing\n";
 
   cout << "Play music1 for 10secs with 5 second fadein\n";
   music1.fadein(5.0f);
-  update_ms(10000);
+  sleep_ms(10000);
 
   cout << "Fadeout music1 over 10 secs\n";
   music1.fadeout(10);
-  update_ms(10000);
+  sleep_ms(10000);
 
   cout << "Fadein music2 over 10 secs, pause after 5 secs\n";
   music2.fadein(10.0);
-  update_ms(5000);
+  sleep_ms(5000);
   assert(!music2.isPaused());
 
   cout << "Pause music2 for 3 secs\n";
   music2.pause();
-  update_ms(3000);
+  sleep_ms(3000);
   assert(music2.isPaused());
 
   cout << "Unpause music2, and continue fadein over 5 secs\n";
   music2.unpause();
-  update_ms(5000);
+  sleep_ms(5000);
   assert(!music2.isPaused());
 
   cout << "Fadein complete, play for 5 secs and then stop\n";
-  update_ms(5000);
+  sleep_ms(5000);
 
   cout << "Stop music2\n";
   music2.stop();
@@ -225,11 +266,11 @@ void test2()
 
 void test3()
 {
-  cout << "Test3: Tests changing 2d position of sound in small steps\n";
+  cout << "\nTest3: Tests changing 2d position of sound in small steps\n";
 
   float listener_x = .5f;
   float listener_y = .5f;
-  System::setListenerPos(listener_x, listener_y);
+  KameMix_setListenerPos(listener_x, listener_y);
   float x = listener_x;
   float y = listener_y + .25f;
 
@@ -254,7 +295,8 @@ void test3()
       going_left = !going_left;
     }
 
-    total_time += update_ms(frame_ms);
+    sleep_ms(frame_ms);
+    total_time += frame_ms;
     if (total_time > 20000) {
       spell1.stop();
       break;
@@ -267,11 +309,11 @@ void test3()
 
 void test4()
 {
-  cout << "Test4: Tests setting 2d position without small steps\n";
+  cout << "\nTest4: Tests setting 2d position without small steps\n";
 
   float listener_x = .5f;
   float listener_y = .5f;
-  System::setListenerPos(listener_x, listener_y);
+  KameMix_setListenerPos(listener_x, listener_y);
   float lx = listener_x - .5f;
   float rx = listener_x + .5f;
   float y = listener_y;
@@ -280,19 +322,19 @@ void test4()
   duck.setMaxDistance(1.0f);
   duck.setPos(lx, y);
   duck.play(-1);
-  update_ms(3000);
+  sleep_ms(3000);
 
   duck.setPos(rx, y);
-  update_ms(3000);
+  sleep_ms(3000);
 
   duck.setPos(lx, y);
-  update_ms(3000);
+  sleep_ms(3000);
 
   duck.setPos(rx, y);
-  update_ms(3000);
+  sleep_ms(3000);
 
   duck.setPos(lx, y);
-  update_ms(3000);
+  sleep_ms(3000);
 
   cout << "Stop duck\n";
   duck.stop();
@@ -302,34 +344,34 @@ void test4()
 
 void test5()
 {
-  cout << "Test5: Tests changing volume\n";
+  cout << "\nTest5: Tests changing volume\n";
 
   cout << "Play music1 for 5 secs at 100% volume\n";
   music1.setVolume(1.0f);
   music1.setGroup(-1);
   music1.play(-1);
-  update_ms(5000);
+  sleep_ms(5000);
 
   cout << "Set music1 volume to 0% for 3 secs\n";
   music1.setVolume(0);
-  update_ms(3000);
+  sleep_ms(3000);
 
   cout << "Set music1 volume to 100% for 5 secs\n";
   music1.setVolume(1.0f);
-  update_ms(5000);
+  sleep_ms(5000);
 
   cout << "Set music1 volume to 25% for 5 secs\n";
   music1.setVolume(.25f);
-  update_ms(5000);
+  sleep_ms(5000);
 
   cout << "Set music1 volume to 100% for 5 secs\n";
   music1.setVolume(1.0f);
-  update_ms(5000);
+  sleep_ms(5000);
 
   cout << "Stop music1\n";
   music1.stop();
   while (music1.isPlaying()) {
-    update_ms(frame_ms);
+    sleep_ms(frame_ms);
   }
 
   cout << "Test5 complete\n";
@@ -337,7 +379,7 @@ void test5()
 
 void test6()
 {
-  cout << "Test6: Tests changing stream time position\n";
+  cout << "\nTest6: Tests changing stream time position\n";
 
   bool use_stop = false;
   for (int i = 0; i < 2; ++i) {
@@ -351,52 +393,52 @@ void test6()
 
     cout << "Play music1 for 5 secs then skip to 20secs\n";
     music1.play();
-    update_ms(5000);
+    sleep_ms(5000);
 
     cout << "Continue playing at 20secs for 5 secs then skip to 40secs\n";
     if (use_stop) {
       music1.stop();
       while (music1.isPlaying()) {
-        update_ms(frame_ms);
+        sleep_ms(frame_ms);
       }
     }
     music1.playAt(20.0);
-    update_ms(5000);
+    sleep_ms(5000);
 
     cout << "Continue playing at 40secs for 5 secs then skip to 60secs\n";
     if (use_stop) {
       music1.stop();
       while (music1.isPlaying()) {
-        update_ms(frame_ms);
+        sleep_ms(frame_ms);
       }
     }
     music1.playAt(40.0);
-    update_ms(5000);
+    sleep_ms(5000);
 
     cout << "Continue playing at 60secs for 5 secs then skip to 80secs\n";
     if (use_stop) {
       music1.stop();
       while (music1.isPlaying()) {
-        update_ms(frame_ms);
+        sleep_ms(frame_ms);
       }
     }
     music1.playAt(60.0);
-    update_ms(5000);
+    sleep_ms(5000);
 
     cout << "Continue playing at 80secs for 5 secs then stop\n";
     if (use_stop) {
       music1.stop();
       while (music1.isPlaying()) {
-        update_ms(frame_ms);
+        sleep_ms(frame_ms);
       }
     }
     music1.playAt(80.0);
-    update_ms(5000);
+    sleep_ms(5000);
 
     cout << "Stop music1\n";
     music1.stop();
     while (music1.isPlaying()) {
-      update_ms(frame_ms);
+      sleep_ms(frame_ms);
     }
 
     use_stop = true;
@@ -407,33 +449,42 @@ void test6()
 
 void test7()
 {
-  cout << "Test 7: Tests Sound::detach()\n";
+  cout << "\nTest 7: Tests Sound::detach()\n";
 
-  cout << "Play same spell3 3 times 500ms apart without detach()\n";
+  cout << "Play same spell3 4 times 500ms apart without detach()\n";
   spell3.play();
   assert(spell3.isPlaying());
-  update_ms(500);
+  sleep_ms(500);
   spell3.play();
   assert(spell3.isPlaying());
-  update_ms(500);
+  sleep_ms(500);
   spell3.play();
-  update_ms(2000);
+  assert(spell3.isPlaying());
+  sleep_ms(500);
+  spell3.play();
+  sleep_ms(2000);
 
-  cout << "Play same spell3 3 times 500ms apart with detach()\n";
+  cout << "Play same spell3 4 times 500ms apart with detach()\n";
+  spell3.play();
+  assert(spell3.isPlaying());
+  spell3.detach();
+  sleep_ms(500);
+
+  spell3.play();
+  assert(spell3.isPlaying());
+  spell3.detach();
+  sleep_ms(500);
+
+  spell3.play();
+  assert(spell3.isPlaying());
+  spell3.detach();
+  sleep_ms(500);
+
   spell3.play();
   assert(spell3.isPlaying());
   spell3.detach();
   assert(!spell3.isPlaying());
-  update_ms(500);
-  spell3.playDetached();
-  assert(!spell3.isPlaying());
-  update_ms(500);
-  spell3.play();
-  assert(spell3.isPlaying());
-  spell3.detach();
-  assert(!spell3.isPlaying());
-  update_ms(500);
-  update_ms(2000);
+  sleep_ms(2000);
 
   cout << "Play stream, fadeout over 10secs and detach\n";
   music1.play(-1);
@@ -446,6 +497,6 @@ void test7()
   music1.play(); // no effect
   assert(!music1.isPlaying());
 
-  update_ms(10000);
+  sleep_ms(10000);
   cout << "Test7 complete\n";
 }

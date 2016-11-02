@@ -4,107 +4,19 @@
 #include "vorbis_helper.h"
 #include "wav_loader.h"
 #include "scope_exit.h"
-#include "util.h"
 #include <cassert>
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
-#include <atomic>
-
-namespace KameMix {
-
-struct SoundSharedData {
-  SoundSharedData(uint8_t *buf, int buf_len, int channels) 
-    : buffer{buf}, refcount{1}, buffer_size{buf_len}, channels{channels} 
-  { }
-  uint8_t *buffer;
-  std::atomic<int> refcount;
-  int buffer_size;
-  int channels;
-};
-
-}
 
 namespace {
 
-// audio data must be aligned when placed after header data
-const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(KameMix::SoundSharedData);
 const int MAX_BUFF_SIZE = std::numeric_limits<int>::max();
 
 }
 
-
 namespace KameMix {
-
-SoundBuffer::SoundBuffer() : sdata{nullptr} { }
-
-SoundBuffer::SoundBuffer(const char *filename) : sdata{nullptr} 
-{ 
-  load(filename); 
-}
-
-SoundBuffer::SoundBuffer(const SoundBuffer &other) : sdata{other.sdata}
-{
-  incRefCount();
-}
-
-SoundBuffer::SoundBuffer(SoundBuffer &&other) : sdata{other.sdata}
-{
-  other.sdata = nullptr;
-}
-
-SoundBuffer& SoundBuffer::operator=(const SoundBuffer &other)
-{
-  if (this != &other) {
-    release();
-    sdata = other.sdata;
-    incRefCount();
-  }
-  return *this;
-}
-
-SoundBuffer& SoundBuffer::operator=(SoundBuffer &&other)
-{
-  if (this != &other) {
-    release();
-    sdata = other.sdata;
-    other.sdata = nullptr;
-  }
-  return *this;
-}
-
-SoundBuffer::~SoundBuffer() { release(); }
-
-bool SoundBuffer::isLoaded() const { return sdata != nullptr; }
-int SoundBuffer::useCount() const { return sdata ? sdata->refcount.load() : 0; }
-
-uint8_t* SoundBuffer::data() 
-{ 
-  return sdata ? sdata->buffer : nullptr; 
-}
-
-int SoundBuffer::size() const 
-{ 
-  return sdata ? sdata->buffer_size : 0; 
-}
-
-int SoundBuffer::numChannels() const 
-{ 
-  return sdata ? sdata->channels : 0; 
-}
-
-int SoundBuffer::sampleBlockSize() const 
-{ 
-  return sdata ? sdata->channels * System::getFormatSize() : 0; 
-}
-
-void SoundBuffer::incRefCount() 
-{ 
-  if (sdata) {
-    sdata->refcount.fetch_add(1, std::memory_order_relaxed);
-  }
-}
 
 bool SoundBuffer::load(const char *filename)
 {
@@ -155,7 +67,7 @@ bool SoundBuffer::loadWAV(const char *filename)
 
   const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
   const SDL_AudioFormat dst_format = getOutputFormat();
-  const int dst_freq = System::getFrequency();
+  const int dst_freq = KameMix_getFrequency();
   const int channels = wf.num_channels >= 2 ? 2 : 1;
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, 
@@ -172,12 +84,12 @@ bool SoundBuffer::loadWAV(const char *filename)
       return false;
     }
 
-    dst_buf = (uint8_t*)km_malloc_(audio_buf_len + HEADER_SIZE);
+    dst_buf = (uint8_t*)km_malloc_(audio_buf_len);
     if (!dst_buf) {
       return false;
     }
     audio_buf_len = 
-      (int)KameMix_wavRead(&wf, dst_buf + HEADER_SIZE, audio_buf_len);
+      (int)KameMix_wavRead(&wf, dst_buf, audio_buf_len);
     if (audio_buf_len < 0) {
       return false;
     }
@@ -186,13 +98,13 @@ bool SoundBuffer::loadWAV(const char *filename)
       return false;
     }
     cvt.len = audio_buf_len;
-    dst_buf = (uint8_t*)km_malloc_(cvt.len * cvt.len_mult + HEADER_SIZE);
+    dst_buf = (uint8_t*)km_malloc_(cvt.len * cvt.len_mult);
     if (!dst_buf) {
       return false;
     }
-    cvt.buf = dst_buf + HEADER_SIZE;
+    cvt.buf = dst_buf;
     audio_buf_len = 
-      (int)KameMix_wavRead(&wf, dst_buf + HEADER_SIZE, audio_buf_len);
+      (int)KameMix_wavRead(&wf, dst_buf, audio_buf_len);
     if (audio_buf_len < 0) {
       return false;
     }
@@ -201,12 +113,12 @@ bool SoundBuffer::loadWAV(const char *filename)
       return false;
     }
     
-    const int block_size = channels * System::getFormatSize();
+    const int block_size = channels * KameMix_getFormatSize();
     audio_buf_len = (cvt.len_cvt / block_size) * block_size;
     // try to shrink if at least 1KB unused
     if ((cvt.len * cvt.len_mult - audio_buf_len) > 1024) {
       uint8_t *tmp = 
-        (uint8_t*)km_realloc_(dst_buf, audio_buf_len + HEADER_SIZE);
+        (uint8_t*)km_realloc_(dst_buf, audio_buf_len);
       // if fails do nothing, dst_buf is still good
       if (tmp) {
         dst_buf = tmp;
@@ -214,9 +126,9 @@ bool SoundBuffer::loadWAV(const char *filename)
     }
   }
 
-  uint8_t *audio_buf = dst_buf + HEADER_SIZE;
-  sdata = new (dst_buf) SoundSharedData(audio_buf, audio_buf_len, 
-    channels);
+  this->buffer = dst_buf; 
+  this->buffer_size = audio_buf_len; 
+  this->channels = channels;
   dst_buf_cleanup.cancel(); // don't free dst_buf
   return true;
 }
@@ -247,7 +159,7 @@ bool SoundBuffer::loadOGG(const char *filename)
       return false;
     }
     audio_buf_len = (int)tmp_len; 
-    dst_buf = (uint8_t*)km_malloc_(audio_buf_len + HEADER_SIZE);
+    dst_buf = (uint8_t*)km_malloc_(audio_buf_len);
     if (!dst_buf) {
       return false;
     }
@@ -255,7 +167,7 @@ bool SoundBuffer::loadOGG(const char *filename)
 
   auto dst_buf_cleanup = makeScopeExit([&dst_buf]() { km_free(dst_buf); });
 
-  uint8_t *cvt_buf = dst_buf + HEADER_SIZE;
+  uint8_t *cvt_buf = dst_buf;
   float *dst = (float*)cvt_buf;
   // pointer to array of channels, each channel is array of floats
   float **channel_buf; 
@@ -314,7 +226,7 @@ bool SoundBuffer::loadOGG(const char *filename)
         // freq is different in this stream than last, or reached end of
         // physical straem so convert all data not converted yet if necessary 
         if (src_freq != last_src_freq || stream_idx == 0) {
-          const int dst_freq = System::getFrequency();
+          const int dst_freq = KameMix_getFrequency();
           const SDL_AudioFormat dst_format = getOutputFormat();
           SDL_AudioCVT cvt;
           if (SDL_BuildAudioCVT(&cvt, AUDIO_F32SYS, channels, last_src_freq, 
@@ -328,7 +240,7 @@ bool SoundBuffer::loadOGG(const char *filename)
             if (SDL_ConvertAudio(&cvt) < 0) {
               return false;
             }
-            const int block_size = channels * System::getFormatSize();
+            const int block_size = channels * KameMix_getFormatSize();
             cvt_buf += (cvt.len_cvt / block_size) * block_size;
             dst = (float*)cvt_buf;
           }
@@ -344,22 +256,23 @@ bool SoundBuffer::loadOGG(const char *filename)
     }
   }
 
-  uint8_t *audio_buf = dst_buf + HEADER_SIZE;
+  uint8_t *audio_buf = dst_buf;
   // shrink buffer at least 1KB unused memory
   const int audio_buf_used = (int)((uint8_t*)dst - audio_buf);
   if (audio_buf_len - audio_buf_used > 1024) { 
     uint8_t *tmp = 
-      (uint8_t*)km_realloc_(dst_buf, audio_buf_used + HEADER_SIZE);
+      (uint8_t*)km_realloc_(dst_buf, audio_buf_used);
     // if fails do nothing, dst_buf is still good
     if (tmp) {
       dst_buf = tmp;
-      audio_buf = dst_buf + HEADER_SIZE;
+      audio_buf = dst_buf;
       audio_buf_len = audio_buf_used;
     }
   }
 
-  sdata = new(dst_buf) SoundSharedData(audio_buf, audio_buf_len, 
-    channels);
+  this->buffer = audio_buf;
+  this->buffer_size = audio_buf_len; 
+  this->channels = channels;
   dst_buf_cleanup.cancel(); // don't free dst_buf
 
   return true;
@@ -367,15 +280,10 @@ bool SoundBuffer::loadOGG(const char *filename)
 
 void SoundBuffer::release()
 {
-  if (sdata != nullptr) {
-    if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
-      std::atomic_thread_fence(std::memory_order_acquire);
-      sdata->~SoundSharedData();
-      km_free(sdata);
-      sdata = nullptr;
-    }
+  if (buffer != nullptr) {
+    km_free(buffer);
+    buffer = nullptr;
   }
 }
-
 
 } // end namespace KameMix

@@ -173,6 +173,10 @@
   <ItemGroup>
     <ClCompile Include="..\..\test\kame_mix_test.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\test\sound.h" />
+    <ClInclude Include="..\..\test\stream.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

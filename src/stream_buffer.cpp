@@ -1,50 +1,43 @@
 #include "stream_buffer.h"
 #include "audio_mem.h"
-#include "wav_loader.h"
 #include "scope_exit.h"
 #include "vorbis_helper.h"
 #include "sdl_helper.h"
-#include "util.h"
 #include <cassert>
 #include <cstring>
 #include <cctype>
 #include <cstdlib>
-#include <atomic>
-#include <mutex>
-#include <thread>
 
-enum StreamType {
-  VorbisType,
-  WavType,
-  InvalidType
-};
+namespace {
 
-/*
-No lock required: total_time, channels, full_buffered, refcount
+// 0.5 sec of stereo float samples at 44100 sample rate
+const int STREAM_SIZE = 22050 * sizeof(float) * 2;
+const int MIN_READ_SAMPLES = 64;
 
-mutex: 
-  read/write: time, buffer, buffer_size, end_pos
+int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
+                int &end_pos, int channels, bool stop_at_eof);
 
-mutex2:
-  write: time2, buffer2, buffer_size2, end_pos2, set_pos, error, SharedData2
-  read: everything except buffer
+int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len, 
+                int &end_pos, int channels, bool stop_at_eof);
 
-Modifying functions:
-advance/updatePos/swapBuffers: 
-  time, time2, buffer, buffer2, buffer_size, buffer_size2, end_pos,
-  end_pos2, pos_set, error
-readMore/setPos: time2, buffer2, buffer_size2, end_pos2, pos_set, error
-*/
+} // end anon namespace 
+
 namespace KameMix {
 
-struct StreamSharedData {
-  StreamSharedData() : total_time{0.0}, time{0.0}, time2{0.0}, buffer{nullptr},
-    buffer2{nullptr}, buffer_size{0}, buffer_size2{0}, end_pos{-1}, 
-    end_pos2{-1}, channels{0}, refcount(1), fully_buffered{false}, 
-    pos_set{false}, error{false}, type{InvalidType}  { }
+bool StreamBuffer::allocData()
+{
+  buffer = (uint8_t*)km_malloc_(STREAM_SIZE * 2);
+  if (!buffer) {
+    return false;
+  }
 
-  ~StreamSharedData()
-  {
+  buffer2 = buffer + STREAM_SIZE;
+  return true;
+}
+
+void StreamBuffer::release()
+{ 
+  if (buffer) {
     switch (type) {
     case VorbisType:
       ov_clear(&vf);
@@ -58,201 +51,13 @@ struct StreamSharedData {
       // do nothing
       break;
     }
-  }
 
-  double total_time; // total stream time in seconds
-  double time; // current time in seconds
-  double time2; // current time of buffer2 in seconds
-  uint8_t *buffer;
-  uint8_t *buffer2;
-  int buffer_size;
-  int buffer_size2; 
-  int end_pos; // 1 past end of stream in bytes, or -1 if end not in buffer
-  int end_pos2; // 1 past end of stream in bytes, or -1 if end not in buffer2
-  int channels;
-  std::atomic<int> refcount;
-  std::mutex mutex;
-  std::mutex mutex2;
-  bool fully_buffered; // whole stream fit into buffer
-  bool pos_set; // setPos called
-  bool error; // error reading
-  StreamType type;
-  union {
-    OggVorbis_File vf;
-    KameMix_WavFile wf;
-  };
-};
-
-}
-
-namespace {
-
-// 0.5 sec of stereo float samples at 44100 sample rate
-const int STREAM_SIZE = 22050 * sizeof(float) * 2;
-const int MIN_READ_SAMPLES = 64;
-// audio data must be aligned when placed after header data
-const size_t HEADER_SIZE = ALIGNED_HEADER_SIZE(KameMix::StreamSharedData);
-
-int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels, bool stop_at_eof);
-
-int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len, 
-                int &end_pos, int channels, bool stop_at_eof);
-
-} // end anon namespace 
-
-namespace KameMix {
-
-StreamBuffer::StreamBuffer() : sdata{nullptr} {  }
-
-StreamBuffer::StreamBuffer(const char *filename, double sec) 
-  : sdata{nullptr} 
-{ 
-  load(filename, sec); 
-}
-
-StreamBuffer::StreamBuffer(const StreamBuffer &other) : sdata{other.sdata}
-{
-  incRefCount();
-}
-
-StreamBuffer& StreamBuffer::operator=(const StreamBuffer &other)
-{
-  if (this != &other) {
-    release();
-    sdata = other.sdata;
-    incRefCount();
-  }
-  return *this;
-}
-
-StreamBuffer::StreamBuffer(StreamBuffer &&other) : sdata{other.sdata}
-{
-  other.sdata = nullptr;
-}
-
-StreamBuffer& StreamBuffer::operator=(StreamBuffer &&other)
-{
-  if (this != &other) {
-    release();
-    sdata = other.sdata;
-    other.sdata = nullptr;
-  }
-  return *this;
-}
-
-StreamBuffer::~StreamBuffer() { release(); }
-
-bool StreamBuffer::isLoaded() const { return sdata != nullptr; }
-
-bool StreamBuffer::fullyBuffered() const 
-{ 
-  return sdata ? sdata->fully_buffered : false;; 
-}
-
-double StreamBuffer::totalTime() const 
-{ 
-  return sdata ? sdata->total_time : 0; 
-}
-
-int StreamBuffer::numChannels() const 
-{ 
-  return sdata ? sdata->channels : 0; 
-}
-
-int StreamBuffer::sampleBlockSize() const 
-{ 
-  return sdata ? sdata->channels * System::getFormatSize() : 0; 
-}
-
-void StreamBuffer::lock() 
-{ 
-  if (sdata) {
-    sdata->mutex.lock(); 
-  }
-}
-
-void StreamBuffer::unlock() 
-{ 
-  if (sdata) {
-    sdata->mutex.unlock(); 
-  }
-}
-
-uint8_t* StreamBuffer::data() const 
-{ 
-  return sdata ? sdata->buffer : nullptr; 
-}
-
-int StreamBuffer::size() const 
-{ 
-  return sdata ? sdata->buffer_size : 0; 
-}
-
-double StreamBuffer::time() const 
-{ 
-  return sdata ? sdata->time : -1; 
-}
-
-int StreamBuffer::endPos() const 
-{ 
-  return sdata ? sdata->end_pos : -1; 
-}
-
-int StreamBuffer::startPos() const 
-{
-  if (sdata) {
-    if (sdata->time == 0.0) {
-      return 0;
-    } else if (sdata->end_pos != -1 && sdata->end_pos != sdata->buffer_size) {
-      return sdata->end_pos;
-    }
-  }
-  return -1;
-}
-
-int StreamBuffer::getPos(double sec) const 
-{
-  if (sdata) {
-    int sample_pos = (int)((sec - sdata->time) * System::getFrequency());
-    int byte_pos = sample_pos * sampleBlockSize();
-    if (byte_pos < 0 || byte_pos > sdata->buffer_size) {
-      return -1;
-    }
-    return byte_pos;
-  }
-  return -1;
-}
-
-void StreamBuffer::incRefCount() 
-{ 
-  if (sdata) {
-    sdata->refcount.fetch_add(1, std::memory_order_relaxed);
-  }
-}
-
-bool StreamBuffer::allocData()
-{
-  sdata = (StreamSharedData*)km_malloc_(STREAM_SIZE * 2 + HEADER_SIZE);
-  if (!sdata) {
-    return false;
-  }
-
-  StreamSharedData *sdata = new (this->sdata) StreamSharedData(); 
-  sdata->buffer = ((uint8_t*)sdata) + HEADER_SIZE;
-  sdata->buffer2 = sdata->buffer + STREAM_SIZE;
-  return true;
-}
-
-void StreamBuffer::release()
-{ 
-  if (sdata) {
-    if (sdata->refcount.fetch_sub(1, std::memory_order_release) == 1) {
-      std::atomic_thread_fence(std::memory_order_acquire);
-      sdata->~StreamSharedData();
-      km_free(sdata); 
-    }
-    sdata = nullptr;
+    uint8_t *buf = buffer < buffer2 ? buffer : buffer2;
+    km_free(buf); 
+    buffer = nullptr;
+    buffer2 = nullptr;
+    buffer_size = 0;
+    buffer_size2 = 0;
   }
 }
 
@@ -303,37 +108,36 @@ bool StreamBuffer::loadWAV(const char *filename, double sec)
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
-  KameMix_WavFile &wf = sdata->wf;
   KameMix_WavResult wav_result = KameMix_wavOpen(&wf, filename);
   if (wav_result != KameMix_WAV_OK) {
     return false;
   }
 
-  sdata->type = WavType;
-  sdata->channels = wf.num_channels >= 2 ? 2 : 1;
-  sdata->total_time = KameMix_wavTotalTime(&wf);
+  type = WavType;
+  channels = wf.num_channels >= 2 ? 2 : 1;
+  total_time = KameMix_wavTotalTime(&wf);
   const int64_t total_size = 
     KameMix_wavTotalBlocks(&wf) * sampleBlockSize();
   int buf_len = STREAM_SIZE;
   // If the size of decoded file is less than one buffer then 
   // read full file into first buffer without looping to start. 
   if (total_size <= STREAM_SIZE) {
-    sdata->fully_buffered = true;
+    fully_buffered = true;
     sec = 0.0;
     buf_len = STREAM_SIZE * 2;
   }
 
-  sdata->time = sec;
+  time = sec;
   if (!KameMix_wavTimeSeek(&wf, sec)) {
     return false;
   }
 
-  sdata->buffer_size = readMoreWAV(wf, sdata->buffer, buf_len, 
-    sdata->end_pos, sdata->channels, sdata->fully_buffered);
-  if (sdata->buffer_size > 0) {
-    if (sdata->fully_buffered && sdata->end_pos == -1) {
+  buffer_size = readMoreWAV(wf, buffer, buf_len, 
+    end_pos, channels, fully_buffered);
+  if (buffer_size > 0) {
+    if (fully_buffered && end_pos == -1) {
       assert("End of stream must be reached when fully buffered");
-      sdata->end_pos = sdata->buffer_size;
+      end_pos = buffer_size;
     }
     err_cleanup.cancel();
     return true;
@@ -353,42 +157,42 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
   // call release on error
   auto err_cleanup = makeScopeExit([this]() { release(); });
 
-  if (ov_fopen(filename, &sdata->vf) != 0) {
+  if (ov_fopen(filename, &vf) != 0) {
     return false;
   }
 
-  sdata->type = VorbisType;
+  type = VorbisType;
 
-  if (ov_seekable(&sdata->vf) == 0) {
+  if (ov_seekable(&vf) == 0) {
     return false;
   }
 
-  bool is_mono_src = isMonoOGG(sdata->vf); // all bitsreams are mono
-  sdata->channels = is_mono_src ? 1 : 2;
-  sdata->total_time = ov_time_total(&sdata->vf, -1);
-  const int freq = System::getFrequency();
-  int64_t total_samples = (int64_t)(sdata->total_time * freq);
+  bool is_mono_src = isMonoOGG(vf); // all bitsreams are mono
+  channels = is_mono_src ? 1 : 2;
+  total_time = ov_time_total(&vf, -1);
+  const int freq = KameMix_getFrequency();
+  int64_t total_samples = (int64_t)(total_time * freq);
   int64_t total_size = total_samples * sampleBlockSize();
 
   int buf_len = STREAM_SIZE;
   // If the size of decoded file is less than one buffer then 
   // read full file into first buffer without looping to start. 
   if (total_size <= STREAM_SIZE) {
-    sdata->fully_buffered = true;
+    fully_buffered = true;
     sec = 0.0;
     buf_len = STREAM_SIZE * 2;
   }
 
-  sdata->time = sec;
-  if (ov_time_seek(&sdata->vf, sec) != 0) {
+  time = sec;
+  if (ov_time_seek(&vf, sec) != 0) {
     return false;
   }
-  sdata->buffer_size = readMoreOGG(sdata->vf, sdata->buffer, buf_len, 
-    sdata->end_pos, sdata->channels, sdata->fully_buffered);
-  if (sdata->buffer_size > 0) {
-    if (sdata->fully_buffered && sdata->end_pos == -1) {
+  buffer_size = readMoreOGG(vf, buffer, buf_len, 
+    end_pos, channels, fully_buffered);
+  if (buffer_size > 0) {
+    if (fully_buffered && end_pos == -1) {
       assert("End of stream must be reached when fully buffered");
-      sdata->end_pos = sdata->buffer_size;
+      end_pos = buffer_size;
     }
     err_cleanup.cancel();
     return true;
@@ -399,37 +203,37 @@ bool StreamBuffer::loadOGG(const char *filename, double sec)
 
 void StreamBuffer::calcTime()
 {
-  const double freq = System::getFrequency();
-  const int block_size = System::getFormatSize() * sdata->channels;
+  const double freq = KameMix_getFrequency();
+  const int block_size = KameMix_getFormatSize() * channels;
 
   // stream ended in buffer2
-  if (sdata->end_pos2 != -1) {
+  if (end_pos2 != -1) {
     // end of stream reached immediately, so buffer2 is start
-    if (sdata->end_pos2 == 0) {
-      sdata->time2 = 0.0;
+    if (end_pos2 == 0) {
+      time2 = 0.0;
     // end of stream found, so set time to (total time - secs from end)
     } else {
-      int end_samples = sdata->end_pos2 / block_size;
+      int end_samples = end_pos2 / block_size;
       double time_to_end = (double)end_samples/freq;
-      sdata->time2 = sdata->total_time - time_to_end;
+      time2 = total_time - time_to_end;
     }
   } else {
     // stream ended in main buffer
-    if (sdata->end_pos != -1) {
+    if (end_pos != -1) {
       // EOF was at end of buffer, so buffer2 is start of stream
-      if (sdata->end_pos == sdata->buffer_size) {
-        sdata->time2 = 0.0;
+      if (end_pos == buffer_size) {
+        time2 = 0.0;
       // start is in buffer, so set time to secs past start
       } else {
-        int bytes_past_start = sdata->buffer_size - sdata->end_pos;
+        int bytes_past_start = buffer_size - end_pos;
         int samples_past_start = bytes_past_start / block_size;
-        sdata->time2 = (double)samples_past_start/freq;
+        time2 = (double)samples_past_start/freq;
       }
     // set time2 to time + buffer duration
     } else {
-      int buf_samples = sdata->buffer_size / block_size;
+      int buf_samples = buffer_size / block_size;
       double time_inc = (double)buf_samples/freq;
-      sdata->time2 = sdata->time + time_inc;
+      time2 = time + time_inc;
     }
   }
 }
@@ -437,81 +241,80 @@ void StreamBuffer::calcTime()
 bool StreamBuffer::readMore()
 {
   // Full stream in buffer, so don't need to read. No lock needed.
-  if (sdata->fully_buffered) {
+  if (fully_buffered) {
     return true;
   }
 
-  std::lock_guard<std::mutex> guard(sdata->mutex2);
+  std::lock_guard<std::mutex> guard(mutex2);
   // buffer2 already has data
-  if (sdata->buffer_size2 > 0) {
+  if (buffer_size2 > 0) {
     return true;
   }
 
   // failed last read, so will fail again
-  if (sdata->error) {
+  if (error) {
     return false;
   }
 
-  switch (sdata->type) {
+  switch (type) {
   case VorbisType:
-    sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, STREAM_SIZE, 
-      sdata->end_pos2, sdata->channels, false);
+    buffer_size2 = readMoreOGG(vf, buffer2, STREAM_SIZE, 
+      end_pos2, channels, false);
     break;
   case WavType:
-    sdata->buffer_size2 = readMoreWAV(sdata->wf, sdata->buffer2, 
-      STREAM_SIZE, sdata->end_pos2, sdata->channels, false);
+    buffer_size2 = readMoreWAV(wf, buffer2, 
+      STREAM_SIZE, end_pos2, channels, false);
     break;
   case InvalidType:
     assert("StreamBuffer tag was invalid");
     break;
   }
 
-  if (sdata->buffer_size2 > 0) {
+  if (buffer_size2 > 0) {
     calcTime();
     return true;
   }
 
-  sdata->error = true;
+  error = true;
   return false;
 }
 
 bool StreamBuffer::setPos(double sec, bool swap_buffers)
 {
   // Full stream in buffer, so don't need to read. No lock needed.
-  if (sdata->fully_buffered) {
+  if (fully_buffered) {
     return true;
   }
 
-  std::lock_guard<std::mutex> guard(sdata->mutex2);
+  std::lock_guard<std::mutex> guard(mutex2);
 
   // unset previous buffer2 data
-  sdata->buffer_size2 = 0;
-  sdata->end_pos2 = -1;
-  sdata->time2 = 0.0;
-  sdata->pos_set = false; // may have been set in previous setPos
-  sdata->error = true;
+  buffer_size2 = 0;
+  end_pos2 = -1;
+  time2 = 0.0;
+  pos_set = false; // may have been set in previous setPos
+  error = true;
 
-  if (sec < 0.0 || sec >= sdata->total_time) {
+  if (sec < 0.0 || sec >= total_time) {
     sec = 0.0;
   }
 
-  switch (sdata->type) {
+  switch (type) {
   case VorbisType:
-    if (ov_time_seek(&sdata->vf, sec) != 0) {
+    if (ov_time_seek(&vf, sec) != 0) {
       return false;
     }
 
-    sdata->buffer_size2 = readMoreOGG(sdata->vf, sdata->buffer2, 
-      STREAM_SIZE, sdata->end_pos2, sdata->channels, false);
+    buffer_size2 = readMoreOGG(vf, buffer2, 
+      STREAM_SIZE, end_pos2, channels, false);
     break;
   case WavType: {
-    KameMix_WavFile &wf = sdata->wf;
     if (!KameMix_wavTimeSeek(&wf, sec)) {
       return false;
     }
 
-    sdata->buffer_size2 = readMoreWAV(wf, sdata->buffer2, 
-      STREAM_SIZE, sdata->end_pos2, sdata->channels, false);
+    buffer_size2 = readMoreWAV(wf, buffer2, 
+      STREAM_SIZE, end_pos2, channels, false);
     break;
   }
   case InvalidType:
@@ -519,13 +322,13 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
     break;
   }
 
-  if (sdata->buffer_size2 > 0) {
-    sdata->time2 = sec;
-    sdata->pos_set = true;
+  if (buffer_size2 > 0) {
+    time2 = sec;
+    pos_set = true;
     if (swap_buffers) {
       swapBuffersImpl();
     }
-    sdata->error = false;
+    error = false;
     return true;
   }
 
@@ -535,24 +338,24 @@ bool StreamBuffer::setPos(double sec, bool swap_buffers)
 StreamResult StreamBuffer::advance() 
 {
   // Full stream in buffer, so don't need to read. No lock needed.
-  if (sdata->fully_buffered) {
+  if (fully_buffered) {
     return StreamReady;
   }
 
-  std::unique_lock<std::mutex> guard(sdata->mutex2, std::try_to_lock_t());
+  std::unique_lock<std::mutex> guard(mutex2, std::try_to_lock_t());
   if (!guard.owns_lock()) {
     return StreamNotReady;
   }
 
-  if (sdata->buffer_size2 > 0 && !sdata->pos_set) {
+  if (buffer_size2 > 0 && !pos_set) {
     swapBuffersImpl();
     return StreamReady;
   }
 
   // readMore not called, an error occurred reading, or setPos was called
-  if (sdata->error) {
+  if (error) {
     return StreamError;
-  } else if (sdata->pos_set) {
+  } else if (pos_set) {
     return StreamPositionSet;
   } else {
     return StreamNoData;
@@ -562,24 +365,24 @@ StreamResult StreamBuffer::advance()
 StreamResult StreamBuffer::updatePos() 
 {
   // Full stream in buffer, so don't need to read. No lock needed.
-  if (sdata->fully_buffered) {
+  if (fully_buffered) {
     return StreamReady;
   }
 
-  std::unique_lock<std::mutex> guard(sdata->mutex2, 
+  std::unique_lock<std::mutex> guard(mutex2, 
                                      std::try_to_lock_t());
   if (!guard.owns_lock()) {
     return StreamNotReady;
   }
 
-  if (sdata->pos_set) { // if pos_set than buffer_size2 > 0
+  if (pos_set) { // if pos_set than buffer_size2 > 0
     swapBuffersImpl();
     return StreamReady;
   }
 
-  if (sdata->error) {
+  if (error) {
     return StreamError;
-  } else if (!sdata->pos_set) {
+  } else if (!pos_set) {
     return StreamPositionNotSet;
   } else {
     return StreamNoData;
@@ -589,22 +392,22 @@ StreamResult StreamBuffer::updatePos()
 StreamResult StreamBuffer::swapBuffers() 
 {
   // Full stream in buffer, so don't need to read. No lock needed.
-  if (sdata->fully_buffered) {
+  if (fully_buffered) {
     return StreamReady;
   }
 
-  std::unique_lock<std::mutex> guard(sdata->mutex2, std::try_to_lock_t());
+  std::unique_lock<std::mutex> guard(mutex2, std::try_to_lock_t());
   if (!guard.owns_lock()) {
     return StreamNotReady;
   }
 
-  if (sdata->buffer_size2 > 0) { // no error if buffer_size > 0
+  if (buffer_size2 > 0) { // no error if buffer_size > 0
     swapBuffersImpl();
     return StreamReady;
   }
 
   // readMore/setPos not called, or an error occurred reading
-  if (sdata->error) {
+  if (error) {
     return StreamError;
   } else {
     return StreamNoData;
@@ -613,17 +416,17 @@ StreamResult StreamBuffer::swapBuffers()
 
 void StreamBuffer::swapBuffersImpl() 
 {
-  std::lock_guard<std::mutex> guard(sdata->mutex);
-  sdata->time = sdata->time2;
-  sdata->time2 = 0.0;
-  sdata->end_pos = sdata->end_pos2;
-  sdata->end_pos2 = -1;
-  uint8_t *tmp = sdata->buffer;
-  sdata->buffer = sdata->buffer2;
-  sdata->buffer2 = tmp;
-  sdata->buffer_size = sdata->buffer_size2;
-  sdata->buffer_size2 = 0; 
-  sdata->pos_set = false;
+  std::lock_guard<std::mutex> guard(mutex);
+  time = time2;
+  time2 = 0.0;
+  end_pos = end_pos2;
+  end_pos2 = -1;
+  uint8_t *tmp = buffer;
+  buffer = buffer2;
+  buffer2 = tmp;
+  buffer_size = buffer_size2;
+  buffer_size2 = 0; 
+  pos_set = false;
 }
 
 } // end namespace KameMix
@@ -635,12 +438,12 @@ int readMoreOGG(OggVorbis_File &vf, uint8_t *buffer, int buf_len,
 {
   using namespace KameMix;
   end_pos = -1;
-  const int dst_freq = System::getFrequency();
+  const int dst_freq = KameMix_getFrequency();
   // Only float output supported for now
   const SDL_AudioFormat src_format = AUDIO_F32SYS;
   const SDL_AudioFormat dst_format = getOutputFormat();
   const int bytes_per_src_block = sizeof(float) * channels;
-  const int bytes_per_dst_block = System::getFormatSize() * channels;
+  const int bytes_per_dst_block = KameMix_getFormatSize() * channels;
 
   int stream_idx; 
   int64_t offset;
@@ -792,10 +595,10 @@ int readMoreWAV(KameMix_WavFile &wf, uint8_t *buffer, int buf_len,
 {
   using namespace KameMix;
   end_pos = -1;
-  const int dst_freq = System::getFrequency();
+  const int dst_freq = KameMix_getFrequency();
   const SDL_AudioFormat src_format = WAV_formatToSDL(wf.format);
   const SDL_AudioFormat dst_format = getOutputFormat();
-  const int bytes_per_block = System::getFormatSize() * channels;
+  const int bytes_per_block = KameMix_getFormatSize() * channels;
 
   SDL_AudioCVT cvt;
   if (SDL_BuildAudioCVT(&cvt, src_format, wf.num_channels, wf.sample_rate, 

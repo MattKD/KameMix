@@ -1,19 +1,19 @@
-#ifndef KAME_MIX_SDL_HELPER_H
-#define KAME_MIX_SDL_HELPER_H
+#ifndef KAMEMIX_SDL_HELPER_H
+#define KAMEMIX_SDL_HELPER_H
 
-#include "system.h"
+#include "KameMix.h"
 #include "wav_loader.h"
 #include <SDL_audio.h>
 
 namespace KameMix {
 
 inline
-SDL_AudioFormat outFormatToSDL(OutputFormat format)
+SDL_AudioFormat outFormatToSDL(KameMix_OutputFormat format)
 {
   switch (format) {
-  case OutputFloat:
+  case KameMix_OutputFloat:
     return AUDIO_F32SYS;
-  case OutputS16:
+  case KameMix_OutputS16:
     return AUDIO_S16SYS;
   }
 
@@ -40,7 +40,7 @@ SDL_AudioFormat WAV_formatToSDL(const KameMix_WavFormat format)
 inline
 SDL_AudioFormat getOutputFormat()
 {
-  return outFormatToSDL(System::getFormat());
+  return outFormatToSDL(KameMix_getFormat());
 }
 
 }

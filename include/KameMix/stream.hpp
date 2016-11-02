@@ -1,7 +1,7 @@
 #ifndef KAMEMIX_STREAM_H
 #define KAMEMIX_STREAM_H
 
-#include "Kamemix/KameMix.h"
+#include "KameMix.h"
 
 namespace KameMix {
 

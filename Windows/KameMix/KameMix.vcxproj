@@ -21,6 +21,8 @@
   <ItemGroup>
     <ClInclude Include="..\..\include\KameMix\declspec.h" />
     <ClInclude Include="..\..\include\KameMix\KameMix.h" />
+    <ClInclude Include="..\..\include\KameMix\sound.hpp" />
+    <ClInclude Include="..\..\include\KameMix\stream.hpp" />
     <ClInclude Include="..\..\src\audio_mem.h" />
     <ClInclude Include="..\..\src\scope_exit.h" />
     <ClInclude Include="..\..\src\sdl_helper.h" />

@@ -1,7 +1,7 @@
 #ifndef KAMEMIX_SOUND_H
 #define KAMEMIX_SOUND_H
 
-#include "Kamemix/KameMix.h"
+#include "KameMix.h"
 
 namespace KameMix {
 

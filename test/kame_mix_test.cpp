@@ -1,6 +1,6 @@
-#include <Kamemix/KameMix.h>
-#include "sound.h"
-#include "stream.h"
+#include <KameMix/KameMix.h>
+#include "KameMix/sound.hpp"
+#include "KameMix/stream.hpp"
 #include <cmath>
 #include <cassert>
 #include <thread>
